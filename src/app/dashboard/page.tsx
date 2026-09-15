@@ -1,9 +1,11 @@
+
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/contexts/AuthContext";
-import RouteMap, { type LatLng } from "@/components/map/RouteMap";
+import type { LatLng } from "@/components/map/RouteMap";
+import MapOrFallback from "@/components/map/MapOrFallback";
 
 interface QueueRequest {
   _id: string;
@@ -177,7 +179,7 @@ export default function DashboardHomePage() {
         </p>
       </div>
 
-      <RouteMap courierLocation={location} className="h-56 w-full rounded-2xl" />
+      <MapOrFallback courierLocation={location} className="h-56 w-full rounded-2xl" />
 
       <button
         onClick={handleToggleOnline}

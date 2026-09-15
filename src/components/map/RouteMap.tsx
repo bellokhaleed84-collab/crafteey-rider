@@ -15,9 +15,18 @@ interface RouteMapProps {
   dropoff?: LatLng | null;
   courierLocation?: LatLng | null;
   className?: string;
+  // Fires once if Mapbox emits an error (bad token, network failure,
+  // style load failure, etc.) so callers can fall back to something else.
+  onError?: () => void;
 }
 
-export default function RouteMap({ pickup, dropoff, courierLocation, className }: RouteMapProps) {
+export default function RouteMap({
+  pickup,
+  dropoff,
+  courierLocation,
+  className,
+  onError,
+}: RouteMapProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<mapboxgl.Map | null>(null);
   const pickupMarkerRef = useRef<mapboxgl.Marker | null>(null);
@@ -29,6 +38,9 @@ export default function RouteMap({ pickup, dropoff, courierLocation, className }
   // mount/unmount/mount cycle triggers reliably. This flag defers
   // teardown until it's actually safe.
   const loadedRef = useRef(false);
+  const erroredRef = useRef(false);
+  const onErrorRef = useRef(onError);
+  onErrorRef.current = onError;
 
   useEffect(() => {
     if (!containerRef.current || mapRef.current) return;
@@ -43,6 +55,14 @@ export default function RouteMap({ pickup, dropoff, courierLocation, className }
     loadedRef.current = false;
     map.once("load", () => {
       loadedRef.current = true;
+    });
+
+    map.on("error", (e) => {
+      console.error("Mapbox error:", e?.error);
+      if (!erroredRef.current) {
+        erroredRef.current = true;
+        onErrorRef.current?.();
+      }
     });
 
     mapRef.current = map;
