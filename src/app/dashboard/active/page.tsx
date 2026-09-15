@@ -1,9 +1,10 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/contexts/AuthContext";
 import RouteMap, { type LatLng } from "@/components/map/RouteMap";
+import { useGeolocation } from "@/hooks/useGeolocation";
 import { COURIER_STATUS } from "@/lib/constants";
 
 interface ActiveRequest {
@@ -39,10 +40,6 @@ export default function ActiveDeliveryPage() {
   const [loading, setLoading] = useState(true);
   const [advancing, setAdvancing] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [myLocation, setMyLocation] = useState<LatLng | null>(null);
-
-  const watchIdRef = useRef<number | null>(null);
-  const lastSentRef = useRef<number>(0);
 
   const loadActive = useCallback(async () => {
     const token = await getIdToken();
@@ -67,48 +64,36 @@ export default function ActiveDeliveryPage() {
     return () => clearInterval(interval);
   }, [loadActive]);
 
-  // Share live location while a delivery is in progress — throttled to
-  // roughly once every 8s so we're not hammering the API on every GPS
-  // tick, which can fire multiple times a second.
+  const requestId = request?._id;
+
+  // Share live location while a delivery is in progress — same shared hook
+  // as the dashboard, throttled to once every 8s so we're not hammering
+  // the API on every GPS tick.
+  const geo = useGeolocation({
+    onThrottledUpdate: async (coords: LatLng) => {
+      if (!requestId) return;
+      const token = await getIdToken();
+      if (!token) return;
+      fetch(`/api/courier-requests/${requestId}/location`, {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ lat: coords.lat, lng: coords.lng }),
+      }).catch(() => {
+        // A dropped location ping isn't worth surfacing an error for —
+        // the next tick will just try again.
+      });
+    },
+  });
+
   useEffect(() => {
-    if (!request || !navigator.geolocation) return;
-
-    watchIdRef.current = navigator.geolocation.watchPosition(
-      async (pos) => {
-        const { latitude, longitude } = pos.coords;
-        setMyLocation({ lat: latitude, lng: longitude });
-
-        const now = Date.now();
-        if (now - lastSentRef.current < 8000) return;
-        lastSentRef.current = now;
-
-        const token = await getIdToken();
-        if (!token) return;
-        fetch(`/api/courier-requests/${request._id}/location`, {
-          method: "PATCH",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${token}`,
-          },
-          body: JSON.stringify({ lat: latitude, lng: longitude }),
-        }).catch(() => {
-          // A dropped location ping isn't worth surfacing an error for —
-          // the next watchPosition tick will just try again.
-        });
-      },
-      () => {
-        // Permission denied or unavailable — the delivery can still
-        // proceed without live tracking, just without the map updating.
-      },
-      { enableHighAccuracy: true }
-    );
-
-    return () => {
-      if (watchIdRef.current !== null) {
-        navigator.geolocation.clearWatch(watchIdRef.current);
-      }
-    };
-  }, [request, getIdToken]);
+    if (!requestId) return;
+    geo.start();
+    return () => geo.stop();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [requestId]);
 
   async function handleAdvance() {
     if (!request) return;
@@ -150,12 +135,17 @@ export default function ActiveDeliveryPage() {
       ? { lat: request.dropoffLat, lng: request.dropoffLng }
       : null;
 
+  // Permission-denied here is more serious than on the dashboard — the
+  // client is expecting live tracking during an active delivery — so it's
+  // surfaced even though the delivery can still proceed without it.
+  const displayError = geo.error ?? error;
+
   return (
     <div className="space-y-4">
       <RouteMap
         pickup={pickupCoords}
         dropoff={dropoffCoords}
-        courierLocation={myLocation}
+        courierLocation={geo.location}
         className="h-[45vh] w-full rounded-2xl border border-slate-200"
       />
 
@@ -163,6 +153,13 @@ export default function ActiveDeliveryPage() {
         <span className="inline-block rounded-full bg-blue-100 px-2.5 py-1 text-xs font-semibold text-blue-700">
           {STATUS_LABEL[request.status] ?? request.status}
         </span>
+
+        {geo.permissionState === "denied" && (
+          <p className="mt-3 text-xs text-red-600">
+            Location sharing is off — the client won't see your live position
+            until you enable location access.
+          </p>
+        )}
 
         <p className="mt-4 text-xs font-semibold text-slate-400">Pickup</p>
         <p className="text-sm font-semibold text-brand">{request.pickup}</p>
@@ -186,7 +183,9 @@ export default function ActiveDeliveryPage() {
           </a>
         </div>
 
-        {error && <p className="mt-3 text-sm text-red-600">{error}</p>}
+        {displayError && geo.permissionState !== "denied" && (
+          <p className="mt-3 text-sm text-red-600">{displayError}</p>
+        )}
 
         <button
           onClick={handleAdvance}

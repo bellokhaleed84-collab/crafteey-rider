@@ -18,6 +18,9 @@ interface RouteMapProps {
   // Fires once if Mapbox emits an error (bad token, network failure,
   // style load failure, etc.) so callers can fall back to something else.
   onError?: () => void;
+  // Show zoom controls. Defaults to true — set false for small preview
+  // maps where controls would just get in the way.
+  showControls?: boolean;
 }
 
 export default function RouteMap({
@@ -26,6 +29,7 @@ export default function RouteMap({
   courierLocation,
   className,
   onError,
+  showControls = true,
 }: RouteMapProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<mapboxgl.Map | null>(null);
@@ -50,7 +54,27 @@ export default function RouteMap({
       style: "mapbox://styles/mapbox/streets-v12",
       center: [3.3792, 6.5244], // Lagos fallback
       zoom: 11,
+      // Mobile-friendly interaction: riders are one-thumb operating this
+      // while possibly on a bike/bike helmet mount, so we disable rotate
+      // and pitch (easy to trigger by accident with two fingers, hard to
+      // recover from without realizing what happened) and keep it to
+      // plain pan/pinch-zoom.
+      dragRotate: false,
+      pitchWithRotate: false,
+      touchPitch: false,
+      attributionControl: false,
     });
+
+    map.touchZoomRotate.disableRotation();
+
+    map.addControl(new mapboxgl.AttributionControl({ compact: true }));
+
+    if (showControls) {
+      map.addControl(
+        new mapboxgl.NavigationControl({ showCompass: false, showZoom: true }),
+        "bottom-right"
+      );
+    }
 
     loadedRef.current = false;
     map.once("load", () => {
@@ -88,7 +112,8 @@ export default function RouteMap({
       mapRef.current = null;
       loadedRef.current = false;
     };
-  }, []);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [showControls]);
 
   // Pickup marker
   useEffect(() => {
