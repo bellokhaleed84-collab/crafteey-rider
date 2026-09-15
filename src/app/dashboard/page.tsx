@@ -1,8 +1,9 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/contexts/AuthContext";
+import RouteMap, { type LatLng } from "@/components/map/RouteMap";
 
 interface QueueRequest {
   _id: string;
@@ -12,24 +13,50 @@ interface QueueRequest {
   createdAt: string;
 }
 
-export default function QueuePage() {
+export default function DashboardHomePage() {
   const router = useRouter();
   const { getIdToken } = useAuth();
+
+  const [isOnline, setIsOnline] = useState(false);
+  const [togglingOnline, setTogglingOnline] = useState(false);
+  const [location, setLocation] = useState<LatLng | null>(null);
+
   const [requests, setRequests] = useState<QueueRequest[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [loadingQueue, setLoadingQueue] = useState(false);
   const [acceptingId, setAcceptingId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+
+  const watchIdRef = useRef<number | null>(null);
+  const lastSentRef = useRef<number>(0);
+
+  // Load the courier's current online state on mount so a page refresh
+  // doesn't silently flip them offline in the UI while the DB still
+  // thinks they're online.
+  useEffect(() => {
+    (async () => {
+      const token = await getIdToken();
+      if (!token) return;
+      const res = await fetch("/api/couriers/me", {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (data.courier?.isOnline) setIsOnline(true);
+      }
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const checkActiveThenLoadQueue = useCallback(async () => {
     const token = await getIdToken();
     if (!token) return;
 
-    // If this courier already has an active delivery, send them there
-    // instead of showing the queue — they can't accept a second job.
+    // If this courier already has an active delivery, send them there —
+    // they can't accept a second job.
     const activeRes = await fetch("/api/courier-requests/active", {
       headers: { Authorization: `Bearer ${token}` },
     });
-    const activeData = await activeRes.json();
+    const activeData = await activeRes.json().catch(() => ({}));
     if (activeData.request) {
       router.replace("/dashboard/active");
       return;
@@ -42,15 +69,79 @@ export default function QueuePage() {
       const data = await queueRes.json();
       setRequests(data.requests ?? []);
     }
-    setLoading(false);
+    setLoadingQueue(false);
   }, [getIdToken, router]);
 
+  // Only poll the queue while online.
   useEffect(() => {
+    if (!isOnline) {
+      setRequests([]);
+      return;
+    }
+    setLoadingQueue(true);
     checkActiveThenLoadQueue();
-    // Poll every 6s so new requests show up without a manual refresh.
     const interval = setInterval(checkActiveThenLoadQueue, 6000);
     return () => clearInterval(interval);
-  }, [checkActiveThenLoadQueue]);
+  }, [isOnline, checkActiveThenLoadQueue]);
+
+  async function sendPresence(next: boolean, coords?: LatLng | null) {
+    const token = await getIdToken();
+    if (!token) return;
+    await fetch("/api/couriers/online", {
+      method: "PATCH",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify({ isOnline: next, location: coords ?? null }),
+    }).catch(() => {});
+  }
+
+  function startWatchingLocation() {
+    if (!navigator.geolocation || watchIdRef.current !== null) return;
+    watchIdRef.current = navigator.geolocation.watchPosition(
+      (pos) => {
+        const coords = { lat: pos.coords.latitude, lng: pos.coords.longitude };
+        setLocation(coords);
+        const now = Date.now();
+        if (now - lastSentRef.current > 8000) {
+          lastSentRef.current = now;
+          sendPresence(true, coords);
+        }
+      },
+      () => setError("Couldn't get your location. Enable location access to go online."),
+      { enableHighAccuracy: true }
+    );
+  }
+
+  function stopWatchingLocation() {
+    if (watchIdRef.current !== null) {
+      navigator.geolocation.clearWatch(watchIdRef.current);
+      watchIdRef.current = null;
+    }
+  }
+
+  // Stop the geolocation watch if the user navigates away entirely.
+  useEffect(() => stopWatchingLocation, []);
+
+  async function handleToggleOnline() {
+    setError(null);
+    setTogglingOnline(true);
+    try {
+      if (isOnline) {
+        stopWatchingLocation();
+        await sendPresence(false);
+        setIsOnline(false);
+        setLocation(null);
+      } else {
+        setIsOnline(true);
+        startWatchingLocation();
+        await sendPresence(true, location);
+      }
+    } finally {
+      setTogglingOnline(false);
+    }
+  }
 
   async function handleAccept(id: string) {
     setError(null);
@@ -75,23 +166,49 @@ export default function QueuePage() {
     }
   }
 
-  if (loading) {
-    return <p className="text-sm text-steel">Loading queue…</p>;
-  }
-
   return (
-    <div className="space-y-4">
-      <h1 className="text-lg font-bold text-brand">Available deliveries</h1>
+    <div className="space-y-4 pb-4">
+      <div>
+        <h1 className="text-lg font-bold text-brand">
+          {isOnline ? "You're online" : "You're offline"}
+        </h1>
+        <p className="text-sm text-steel">
+          {isOnline ? "Looking for deliveries near you." : "Ready to go?"}
+        </p>
+      </div>
+
+      <RouteMap courierLocation={location} className="h-56 w-full rounded-2xl" />
+
+      <button
+        onClick={handleToggleOnline}
+        disabled={togglingOnline}
+        className={`w-full rounded-xl py-3 text-sm font-bold text-white disabled:opacity-60 ${
+          isOnline ? "bg-slate-700" : "bg-brand-accent"
+        }`}
+      >
+        {togglingOnline ? "Please wait…" : isOnline ? "Go offline" : "Go online"}
+      </button>
 
       {error && <p className="text-sm text-red-600">{error}</p>}
 
-      {requests.length === 0 ? (
+      {!isOnline ? (
+        <div className="rounded-2xl border border-slate-200 bg-white p-4">
+          <p className="text-sm font-semibold text-brand">Peak hours</p>
+          <p className="mt-1 text-xs text-steel">
+            Demand near you is usually highest in the evenings. Go online to
+            start seeing live delivery requests.
+          </p>
+        </div>
+      ) : loadingQueue ? (
+        <p className="text-sm text-steel">Loading queue…</p>
+      ) : requests.length === 0 ? (
         <div className="rounded-2xl border border-slate-200 bg-white p-6 text-center">
           <p className="text-sm text-steel">No delivery requests right now.</p>
           <p className="mt-1 text-xs text-slate-400">This list updates automatically.</p>
         </div>
       ) : (
         <div className="space-y-3">
+          <p className="text-sm font-semibold text-brand">Available deliveries</p>
           {requests.map((r) => (
             <div key={r._id} className="rounded-2xl border border-slate-200 bg-white p-4">
               <p className="text-xs font-semibold text-slate-400">Pickup</p>

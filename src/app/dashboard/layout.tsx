@@ -4,10 +4,11 @@ import { useEffect, useState, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/contexts/AuthContext";
 import { COURIER_ACCOUNT_STATUS, REQUIRE_COURIER_APPROVAL } from "@/lib/constants";
+import BottomNav from "@/components/BottomNav";
 
 export default function DashboardLayout({ children }: { children: ReactNode }) {
   const router = useRouter();
-  const { user, loading, getIdToken, signOut } = useAuth();
+  const { user, loading, getIdToken } = useAuth();
   const [checking, setChecking] = useState(true);
 
   useEffect(() => {
@@ -57,20 +58,9 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
   }
 
   return (
-    <div className="min-h-screen bg-concrete">
-      <header className="flex items-center justify-between border-b border-slate-200 bg-white px-5 py-4">
-        <span className="font-display text-lg font-bold text-brand">Crafteey Rider</span>
-        <button
-          onClick={() => {
-            signOut();
-            router.replace("/login");
-          }}
-          className="text-sm font-semibold text-steel"
-        >
-          Log out
-        </button>
-      </header>
+    <div className="min-h-screen bg-concrete pb-20">
       <main className="mx-auto max-w-lg px-5 py-6">{children}</main>
+      <BottomNav />
     </div>
   );
 }
