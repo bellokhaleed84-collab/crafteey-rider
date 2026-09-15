@@ -6,3 +6,18 @@ html,
 body {
   height: 100%;
 }
+
+@keyframes go-online-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.45); }
+  50% { box-shadow: 0 0 0 14px rgba(16, 185, 129, 0); }
+}
+
+@keyframes searching-scan {
+  0%, 100% { transform: translateX(-70%); }
+  50% { transform: translateX(70%); }
+}
+
+@keyframes sheet-slide-up {
+  from { transform: translateY(100%); opacity: 0; }
+  to { transform: translateY(0); opacity: 1; }
+}

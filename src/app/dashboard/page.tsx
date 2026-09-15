@@ -1,4 +1,3 @@
-
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -31,9 +30,6 @@ export default function DashboardHomePage() {
   const watchIdRef = useRef<number | null>(null);
   const lastSentRef = useRef<number>(0);
 
-  // Load the courier's current online state on mount so a page refresh
-  // doesn't silently flip them offline in the UI while the DB still
-  // thinks they're online.
   useEffect(() => {
     (async () => {
       const token = await getIdToken();
@@ -53,8 +49,6 @@ export default function DashboardHomePage() {
     const token = await getIdToken();
     if (!token) return;
 
-    // If this courier already has an active delivery, send them there —
-    // they can't accept a second job.
     const activeRes = await fetch("/api/courier-requests/active", {
       headers: { Authorization: `Bearer ${token}` },
     });
@@ -74,7 +68,6 @@ export default function DashboardHomePage() {
     setLoadingQueue(false);
   }, [getIdToken, router]);
 
-  // Only poll the queue while online.
   useEffect(() => {
     if (!isOnline) {
       setRequests([]);
@@ -123,7 +116,6 @@ export default function DashboardHomePage() {
     }
   }
 
-  // Stop the geolocation watch if the user navigates away entirely.
   useEffect(() => stopWatchingLocation, []);
 
   async function handleToggleOnline() {
@@ -161,39 +153,34 @@ export default function DashboardHomePage() {
       router.push("/dashboard/active");
     } catch (err: any) {
       setError(err.message || "Couldn't accept this request.");
-      // Someone else may have taken it — refresh the list either way.
       checkActiveThenLoadQueue();
     } finally {
       setAcceptingId(null);
     }
   }
 
-  return (
-    <div className="space-y-4 pb-4">
-      <div>
-        <h1 className="text-lg font-bold text-brand">
-          {isOnline ? "You're online" : "You're offline"}
-        </h1>
-        <p className="text-sm text-steel">
-          {isOnline ? "Looking for deliveries near you." : "Ready to go?"}
-        </p>
-      </div>
+  // ---- OFFLINE VIEW (unchanged layout, button now has a pulse cue) ----
+  if (!isOnline) {
+    return (
+      <div className="space-y-4 pb-4">
+        <div>
+          <h1 className="text-lg font-bold text-brand">You're offline</h1>
+          <p className="text-sm text-steel">Ready to go?</p>
+        </div>
 
-      <MapOrFallback courierLocation={location} className="h-56 w-full rounded-2xl" />
+        <MapOrFallback courierLocation={location} className="h-56 w-full rounded-2xl" />
 
-      <button
-        onClick={handleToggleOnline}
-        disabled={togglingOnline}
-        className={`w-full rounded-xl py-3 text-sm font-bold text-white disabled:opacity-60 ${
-          isOnline ? "bg-slate-700" : "bg-brand-accent"
-        }`}
-      >
-        {togglingOnline ? "Please wait…" : isOnline ? "Go offline" : "Go online"}
-      </button>
+        <button
+          onClick={handleToggleOnline}
+          disabled={togglingOnline}
+          className="w-full rounded-xl bg-brand-accent py-3 text-sm font-bold text-white transition-transform duration-150 active:scale-95 disabled:opacity-60 disabled:[animation:none]"
+          style={{ animation: togglingOnline ? "none" : "go-online-pulse 2.2s ease-in-out infinite" }}
+        >
+          {togglingOnline ? "Please wait…" : "Go online"}
+        </button>
 
-      {error && <p className="text-sm text-red-600">{error}</p>}
+        {error && <p className="text-sm text-red-600">{error}</p>}
 
-      {!isOnline ? (
         <div className="rounded-2xl border border-slate-200 bg-white p-4">
           <p className="text-sm font-semibold text-brand">Peak hours</p>
           <p className="mt-1 text-xs text-steel">
@@ -201,32 +188,70 @@ export default function DashboardHomePage() {
             start seeing live delivery requests.
           </p>
         </div>
-      ) : loadingQueue ? (
-        <p className="text-sm text-steel">Loading queue…</p>
-      ) : requests.length === 0 ? (
-        <div className="rounded-2xl border border-slate-200 bg-white p-6 text-center">
-          <p className="text-sm text-steel">No delivery requests right now.</p>
-          <p className="mt-1 text-xs text-slate-400">This list updates automatically.</p>
+      </div>
+    );
+  }
+
+  // ---- ONLINE VIEW: full map + searching indicator + bottom sheet ----
+  const topRequest = requests[0] ?? null;
+
+  return (
+    <div className="flex h-[calc(100vh-4rem)] flex-col">
+      <div className="relative flex-1">
+        <MapOrFallback courierLocation={location} className="h-full w-full" />
+
+        <div className="absolute inset-x-0 top-0 flex items-center justify-between p-4">
+          <span className="rounded-full bg-white/90 px-3 py-1.5 text-xs font-semibold text-brand shadow">
+            🟢 Online
+          </span>
+          <button
+            onClick={handleToggleOnline}
+            disabled={togglingOnline}
+            className="rounded-full bg-white/90 px-4 py-1.5 text-xs font-semibold text-slate-700 shadow transition-transform duration-150 active:scale-95 disabled:opacity-60"
+          >
+            {togglingOnline ? "…" : "Go offline"}
+          </button>
         </div>
-      ) : (
-        <div className="space-y-3">
-          <p className="text-sm font-semibold text-brand">Available deliveries</p>
-          {requests.map((r) => (
-            <div key={r._id} className="rounded-2xl border border-slate-200 bg-white p-4">
-              <p className="text-xs font-semibold text-slate-400">Pickup</p>
-              <p className="text-sm font-semibold text-brand">{r.pickup}</p>
-              <p className="mt-2 text-xs font-semibold text-slate-400">Drop-off</p>
-              <p className="text-sm font-semibold text-brand">{r.dropoff}</p>
-              {r.note && <p className="mt-2 text-sm text-steel">{r.note}</p>}
-              <button
-                onClick={() => handleAccept(r._id)}
-                disabled={acceptingId === r._id}
-                className="mt-4 w-full rounded-xl bg-brand-accent py-2.5 text-sm font-semibold text-white disabled:opacity-60"
-              >
-                {acceptingId === r._id ? "Accepting…" : "Accept delivery"}
-              </button>
+
+        {!topRequest && (
+          <div className="absolute inset-x-0 bottom-8 flex flex-col items-center gap-3">
+            <div className="relative h-2 w-40 overflow-hidden rounded-full bg-white/40">
+              <div
+                className="absolute top-0 h-2 w-16 rounded-full bg-brand-accent"
+                style={{ animation: "searching-scan 1.6s ease-in-out infinite" }}
+              />
             </div>
-          ))}
+            <p className="rounded-full bg-white/90 px-4 py-1.5 text-xs font-semibold text-steel shadow">
+              Searching for deliveries…
+            </p>
+          </div>
+        )}
+      </div>
+
+      {error && (
+        <p className="bg-red-50 px-4 py-2 text-center text-sm text-red-600">{error}</p>
+      )}
+
+      {topRequest && (
+        <div
+          key={topRequest._id}
+          className="rounded-t-3xl border-t border-slate-200 bg-white p-5 shadow-[0_-8px_24px_rgba(0,0,0,0.12)]"
+          style={{ animation: "sheet-slide-up 0.35s ease-out" }}
+        >
+          <div className="mx-auto mb-3 h-1.5 w-10 rounded-full bg-slate-200" />
+          <p className="text-xs font-semibold text-slate-400">New delivery request</p>
+          <p className="mt-2 text-xs font-semibold text-slate-400">Pickup</p>
+          <p className="text-sm font-semibold text-brand">{topRequest.pickup}</p>
+          <p className="mt-2 text-xs font-semibold text-slate-400">Drop-off</p>
+          <p className="text-sm font-semibold text-brand">{topRequest.dropoff}</p>
+          {topRequest.note && <p className="mt-2 text-sm text-steel">{topRequest.note}</p>}
+          <button
+            onClick={() => handleAccept(topRequest._id)}
+            disabled={acceptingId === topRequest._id}
+            className="mt-4 w-full rounded-xl bg-brand-accent py-3 text-sm font-bold text-white transition-transform duration-150 active:scale-[0.98] disabled:opacity-60"
+          >
+            {acceptingId === topRequest._id ? "Accepting…" : "Accept delivery"}
+          </button>
         </div>
       )}
     </div>
