@@ -14,16 +14,19 @@
   "dependencies": {
     "firebase": "^12.18.0",
     "firebase-admin": "^14.3.0",
+    "ioredis": "^6.0.0",
     "lucide-react": "^1.41.0",
     "mapbox-gl": "^3.30.0",
     "mongoose": "^9.9.4",
     "next": "14.2.35",
+    "pg": "^8.23.0",
     "react": "^18",
     "react-dom": "^18"
   },
   "devDependencies": {
     "@types/mapbox-gl": "^3.4.1",
     "@types/node": "^20",
+    "@types/pg": "^8.23.1",
     "@types/react": "^18",
     "@types/react-dom": "^18",
     "autoprefixer": "^10.4.20",
