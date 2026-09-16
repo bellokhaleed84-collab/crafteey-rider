@@ -3,8 +3,9 @@
 import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/contexts/AuthContext";
-import RouteMap, { type LatLng } from "@/components/map/RouteMap";
-import { useGeolocation } from "@/hooks/useGeolocation";
+import RouteMap from "@/components/map/RouteMap";
+import { useGeolocation, type LatLng } from "@/hooks/useGeolocation";
+import { geocodeAddress } from "@/lib/geocode";
 import { COURIER_STATUS } from "@/lib/constants";
 
 interface ActiveRequest {
@@ -41,6 +42,10 @@ export default function ActiveDeliveryPage() {
   const [advancing, setAdvancing] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  const [pickupCoords, setPickupCoords] = useState<LatLng | null>(null);
+  const [dropoffCoords, setDropoffCoords] = useState<LatLng | null>(null);
+  const [geocodeError, setGeocodeError] = useState<string | null>(null);
+
   const loadActive = useCallback(async () => {
     const token = await getIdToken();
     if (!token) return;
@@ -66,9 +71,52 @@ export default function ActiveDeliveryPage() {
 
   const requestId = request?._id;
 
-  // Share live location while a delivery is in progress — same shared hook
-  // as the dashboard, throttled to once every 8s so we're not hammering
-  // the API on every GPS tick.
+  // Once the rider has marked pickup complete, the map's job shifts from
+  // "get to pickup" to "get to drop-off" — so that's also the point we
+  // start resolving drop-off coordinates.
+  const showDropoff = !!request && request.status !== COURIER_STATUS.ACCEPTED;
+
+  // Resolve pickup coordinates as soon as the request loads. Prefer the
+  // lat/lng crafteey-client already sent; only geocode the address string
+  // as a fallback for requests created without coordinates.
+  useEffect(() => {
+    if (!request) return;
+    if (request.pickupLat != null && request.pickupLng != null) {
+      setPickupCoords({ lat: request.pickupLat, lng: request.pickupLng });
+      return;
+    }
+    let cancelled = false;
+    geocodeAddress(request.pickup).then((coords) => {
+      if (cancelled) return;
+      if (coords) setPickupCoords(coords);
+      else setGeocodeError("Couldn't locate the pickup address on the map.");
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [request?.pickup, request?.pickupLat, request?.pickupLng]);
+
+  // Only resolve drop-off coordinates once pickup is done — no point
+  // geocoding it earlier since it isn't shown yet.
+  useEffect(() => {
+    if (!showDropoff || !request) return;
+    if (request.dropoffLat != null && request.dropoffLng != null) {
+      setDropoffCoords({ lat: request.dropoffLat, lng: request.dropoffLng });
+      return;
+    }
+    let cancelled = false;
+    geocodeAddress(request.dropoff).then((coords) => {
+      if (cancelled) return;
+      if (coords) setDropoffCoords(coords);
+      else setGeocodeError("Couldn't locate the drop-off address on the map.");
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [showDropoff, request?.dropoff, request?.dropoffLat, request?.dropoffLng]);
+
+  // Share live location while a delivery is in progress — throttled to
+  // once every 8s so we're not hammering the API on every GPS tick.
   const geo = useGeolocation({
     onThrottledUpdate: async (coords: LatLng) => {
       if (!requestId) return;
@@ -126,25 +174,13 @@ export default function ActiveDeliveryPage() {
     return <p className="text-sm text-steel">Loading…</p>;
   }
 
-  const pickupCoords: LatLng | null =
-    request.pickupLat != null && request.pickupLng != null
-      ? { lat: request.pickupLat, lng: request.pickupLng }
-      : null;
-  const dropoffCoords: LatLng | null =
-    request.dropoffLat != null && request.dropoffLng != null
-      ? { lat: request.dropoffLat, lng: request.dropoffLng }
-      : null;
-
-  // Permission-denied here is more serious than on the dashboard — the
-  // client is expecting live tracking during an active delivery — so it's
-  // surfaced even though the delivery can still proceed without it.
-  const displayError = geo.error ?? error;
+  const displayError = geo.error ?? geocodeError ?? error;
 
   return (
     <div className="space-y-4">
       <RouteMap
-        pickup={pickupCoords}
-        dropoff={dropoffCoords}
+        pickup={showDropoff ? null : pickupCoords}
+        dropoff={showDropoff ? dropoffCoords : null}
         courierLocation={geo.location}
         className="h-[45vh] w-full rounded-2xl border border-slate-200"
       />
