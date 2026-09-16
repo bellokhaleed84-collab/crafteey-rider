@@ -2,6 +2,7 @@
 
 import { useEffect, useRef } from "react";
 import mapboxgl from "mapbox-gl";
+import type { RouteGeometry } from "@/lib/directions";
 
 mapboxgl.accessToken = process.env.NEXT_PUBLIC_MAPBOX_TOKEN ?? "";
 
@@ -10,16 +11,16 @@ export interface LatLng {
   lng: number;
 }
 
+const ROUTE_SOURCE_ID = "rider-route";
+const ROUTE_LAYER_ID = "rider-route-line";
+
 interface RouteMapProps {
   pickup?: LatLng | null;
   dropoff?: LatLng | null;
   courierLocation?: LatLng | null;
+  route?: RouteGeometry | null;
   className?: string;
-  // Fires once if Mapbox emits an error (bad token, network failure,
-  // style load failure, etc.) so callers can fall back to something else.
   onError?: () => void;
-  // Show zoom controls. Defaults to true — set false for small preview
-  // maps where controls would just get in the way.
   showControls?: boolean;
 }
 
@@ -27,6 +28,7 @@ export default function RouteMap({
   pickup,
   dropoff,
   courierLocation,
+  route,
   className,
   onError,
   showControls = true,
@@ -36,15 +38,14 @@ export default function RouteMap({
   const pickupMarkerRef = useRef<mapboxgl.Marker | null>(null);
   const dropoffMarkerRef = useRef<mapboxgl.Marker | null>(null);
   const courierMarkerRef = useRef<mapboxgl.Marker | null>(null);
-  // See crafteey-client's RouteMap for the full story: mapbox-gl-js
-  // throws internally if .remove() is called before the style has
-  // finished loading, which React Strict Mode's dev-only double
-  // mount/unmount/mount cycle triggers reliably. This flag defers
-  // teardown until it's actually safe.
   const loadedRef = useRef(false);
   const erroredRef = useRef(false);
   const onErrorRef = useRef(onError);
   onErrorRef.current = onError;
+  // Route data can arrive before the map style has finished loading
+  // (sources can't be added until then) — stash it here and flush it
+  // once the "load" event fires.
+  const pendingRouteRef = useRef<RouteGeometry | null | undefined>(undefined);
 
   useEffect(() => {
     if (!containerRef.current || mapRef.current) return;
@@ -54,11 +55,6 @@ export default function RouteMap({
       style: "mapbox://styles/mapbox/streets-v12",
       center: [3.3792, 6.5244], // Lagos fallback
       zoom: 11,
-      // Mobile-friendly interaction: riders are one-thumb operating this
-      // while possibly on a bike/bike helmet mount, so we disable rotate
-      // and pitch (easy to trigger by accident with two fingers, hard to
-      // recover from without realizing what happened) and keep it to
-      // plain pan/pinch-zoom.
       dragRotate: false,
       pitchWithRotate: false,
       touchPitch: false,
@@ -66,7 +62,6 @@ export default function RouteMap({
     });
 
     map.touchZoomRotate.disableRotation();
-
     map.addControl(new mapboxgl.AttributionControl({ compact: true }));
 
     if (showControls) {
@@ -79,6 +74,20 @@ export default function RouteMap({
     loadedRef.current = false;
     map.once("load", () => {
       loadedRef.current = true;
+      map.addSource(ROUTE_SOURCE_ID, {
+        type: "geojson",
+        data: { type: "Feature", properties: {}, geometry: { type: "LineString", coordinates: [] } },
+      });
+      map.addLayer({
+        id: ROUTE_LAYER_ID,
+        type: "line",
+        source: ROUTE_SOURCE_ID,
+        layout: { "line-join": "round", "line-cap": "round" },
+        paint: { "line-color": "#2563eb", "line-width": 4, "line-opacity": 0.85 },
+      });
+      if (pendingRouteRef.current !== undefined) {
+        applyRoute(pendingRouteRef.current);
+      }
     });
 
     map.on("error", (e) => {
@@ -115,6 +124,35 @@ export default function RouteMap({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [showControls]);
 
+  function applyRoute(geometry: RouteGeometry | null) {
+    const map = mapRef.current;
+    if (!map) return;
+    const source = map.getSource(ROUTE_SOURCE_ID) as mapboxgl.GeoJSONSource | undefined;
+    if (!source) return;
+    source.setData({
+      type: "Feature",
+      properties: {},
+      geometry: geometry ?? { type: "LineString", coordinates: [] },
+    });
+    if (geometry && geometry.coordinates.length > 1) {
+      const bounds = geometry.coordinates.reduce(
+        (b, c) => b.extend(c as [number, number]),
+        new mapboxgl.LngLatBounds(geometry.coordinates[0], geometry.coordinates[0])
+      );
+      map.fitBounds(bounds, { padding: 60, maxZoom: 16 });
+    }
+  }
+
+  // Route line
+  useEffect(() => {
+    if (!mapRef.current || !loadedRef.current) {
+      pendingRouteRef.current = route ?? null;
+      return;
+    }
+    applyRoute(route ?? null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [route]);
+
   // Pickup marker
   useEffect(() => {
     if (!mapRef.current) return;
@@ -132,7 +170,7 @@ export default function RouteMap({
     } else {
       pickupMarkerRef.current.setLngLat([pickup.lng, pickup.lat]);
     }
-    fitToMarkers();
+    if (!route) fitToMarkers();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pickup?.lat, pickup?.lng]);
 
@@ -153,13 +191,11 @@ export default function RouteMap({
     } else {
       dropoffMarkerRef.current.setLngLat([dropoff.lng, dropoff.lat]);
     }
-    fitToMarkers();
+    if (!route) fitToMarkers();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [dropoff?.lat, dropoff?.lng]);
 
-  // The courier's own live position — this app is the one WRITING this
-  // value (via /location), but still renders it here for a "here's where
-  // you are relative to pickup/dropoff" self-view.
+  // The courier's own live position.
   useEffect(() => {
     if (!mapRef.current) return;
     if (!courierLocation) {
