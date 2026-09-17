@@ -4,19 +4,30 @@ const REDIS_URL = process.env.REDIS_URL;
 
 declare global {
   // eslint-disable-next-line no-var
-  var __redisClient: Redis | undefined;
+  var __redisClient: Redis | undefined | null;
 }
 
 // Reuse one connection across requests/hot-reloads instead of opening a
-// new one every time — matters more on serverless where this module can
-// get re-evaluated per invocation.
+// new one every time. Wrapped in try/catch because `new Redis(url)`
+// parses the connection string synchronously with `new URL(...)` — a
+// malformed REDIS_URL throws immediately, and since Next.js imports every
+// route module during the BUILD (to collect page data), an unguarded
+// throw here crashes the entire deployment, not just a request at
+// runtime. lazyConnect also avoids opening an actual TCP connection
+// during that build-time import.
 function getRedisClient(): Redis | null {
   if (!REDIS_URL) return null;
-  if (!global.__redisClient) {
-    global.__redisClient = new Redis(REDIS_URL, { maxRetriesPerRequest: 2 });
-    global.__redisClient.on("error", (err) => {
-      console.error("Redis connection error:", err.message);
-    });
+  if (global.__redisClient === undefined) {
+    try {
+      const client = new Redis(REDIS_URL, { maxRetriesPerRequest: 2, lazyConnect: true });
+      client.on("error", (err) => {
+        console.error("Redis connection error:", err.message);
+      });
+      global.__redisClient = client;
+    } catch (err) {
+      console.error("Failed to construct Redis client — check REDIS_URL format:", err);
+      global.__redisClient = null;
+    }
   }
   return global.__redisClient;
 }
