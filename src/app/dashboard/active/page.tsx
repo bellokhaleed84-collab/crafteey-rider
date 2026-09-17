@@ -16,6 +16,7 @@ import {
 } from "@/lib/directions";
 import { NAVIGATION_STAGES } from "@/lib/navigationStages";
 import { COURIER_STATUS } from "@/lib/constants";
+import { getGoogleMapsDirectionsUrl } from "@/lib/navigation";
 
 interface ActiveRequest {
   _id: string;
@@ -58,6 +59,12 @@ export default function ActiveDeliveryPage() {
   const routeRef = useRef<RouteResult | null>(null);
   const lastRouteFetchRef = useRef(0);
   const lastRouteDestKeyRef = useRef<string | null>(null);
+
+  // Arrival is detected passively (below), but advancing the delivery now
+  // requires an explicit tap to confirm — this just tracks whether that
+  // confirmation has happened for the current stage. Reset whenever the
+  // stage changes (see handleAdvance) so it doesn't carry over.
+  const [arrivalConfirmed, setArrivalConfirmed] = useState(false);
 
   useEffect(() => {
     routeRef.current = route;
@@ -221,6 +228,8 @@ export default function ActiveDeliveryPage() {
         // New stage, new destination — don't wait for the throttle.
         lastRouteFetchRef.current = 0;
         lastRouteDestKeyRef.current = null;
+        // New stage means arrival needs to be confirmed again for it.
+        setArrivalConfirmed(false);
       }
     } catch (err: any) {
       setError(err.message || "Couldn't update status.");
@@ -243,6 +252,7 @@ export default function ActiveDeliveryPage() {
           dropoff={showDropoff ? dropoffCoords : null}
           courierLocation={geo.location}
           route={route?.geometry}
+          followCourier
           className="h-[45vh] w-full rounded-2xl border border-slate-200"
         />
         {route && (
@@ -287,6 +297,17 @@ export default function ActiveDeliveryPage() {
           </>
         )}
 
+        {destination && (
+          <a
+            href={getGoogleMapsDirectionsUrl(destination.lat, destination.lng)}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="mt-4 inline-flex w-full items-center justify-center rounded-xl border border-brand-accent py-2 text-sm font-semibold text-brand-accent"
+          >
+            Navigate
+          </a>
+        )}
+
         <div className="mt-5 rounded-xl bg-slate-50 p-4">
           <p className="text-xs font-semibold text-slate-400">Client</p>
           <p className="text-sm font-semibold text-brand">{request.clientName}</p>
@@ -302,14 +323,23 @@ export default function ActiveDeliveryPage() {
           <p className="mt-3 text-sm text-red-600">{displayError}</p>
         )}
 
-        <button
-          onClick={handleAdvance}
-          disabled={advancing}
-          className="mt-5 w-full rounded-xl bg-brand py-3 text-sm font-semibold text-white transition-transform duration-150 active:scale-[0.98] disabled:opacity-60 disabled:[animation:none]"
-          style={{ animation: hasArrived && !advancing ? "arrival-pulse 2s ease-in-out infinite" : "none" }}
-        >
-          {advancing ? "Updating…" : stage.nextActionLabel}
-        </button>
+        {hasArrived && !arrivalConfirmed ? (
+          <button
+            onClick={() => setArrivalConfirmed(true)}
+            className="mt-5 w-full rounded-xl bg-emerald-600 py-3 text-sm font-semibold text-white transition-transform duration-150 active:scale-[0.98]"
+          >
+            Confirm arrival
+          </button>
+        ) : (
+          <button
+            onClick={handleAdvance}
+            disabled={advancing}
+            className="mt-5 w-full rounded-xl bg-brand py-3 text-sm font-semibold text-white transition-transform duration-150 active:scale-[0.98] disabled:opacity-60 disabled:[animation:none]"
+            style={{ animation: hasArrived && !advancing ? "arrival-pulse 2s ease-in-out infinite" : "none" }}
+          >
+            {advancing ? "Updating…" : stage.nextActionLabel}
+          </button>
+        )}
       </div>
     </div>
   );

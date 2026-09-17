@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/contexts/AuthContext";
 import type { LatLng } from "@/hooks/useGeolocation";
@@ -15,6 +15,14 @@ interface QueueRequest {
   createdAt: string;
 }
 
+// How long a request stays visible before it's auto-hidden from view.
+const ACCEPT_WINDOW_MS = 8000;
+// How long a timed-out request stays hidden before it's eligible to
+// resurface (there's no decline endpoint yet, so this is purely a
+// client-side "don't stare at the same expired card" cooldown — it can
+// still come back if nothing else is in the queue).
+const HIDE_AFTER_TIMEOUT_MS = 20000;
+
 export default function DashboardHomePage() {
   const router = useRouter();
   const { getIdToken } = useAuth();
@@ -26,6 +34,14 @@ export default function DashboardHomePage() {
   const [loadingQueue, setLoadingQueue] = useState(false);
   const [acceptingId, setAcceptingId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+
+  // Requests that timed out without being accepted, mapped to the
+  // timestamp they become eligible to show again. A ref because it
+  // doesn't need to drive rendering on its own — hiddenTick below does
+  // that whenever it changes.
+  const hiddenUntilRef = useRef<Record<string, number>>({});
+  const [hiddenTick, setHiddenTick] = useState(0);
+  const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   async function sendPresence(next: boolean, coords?: LatLng | null) {
     const token = await getIdToken();
@@ -146,6 +162,56 @@ export default function DashboardHomePage() {
     }
   }
 
+  // Visible requests exclude anything still inside its post-timeout
+  // cooldown window. This is recomputed whenever the queue refreshes or
+  // hiddenTick changes (i.e. right when something times out or comes
+  // back off cooldown).
+  const now = Date.now();
+  const visibleRequests = requests.filter((r) => {
+    const until = hiddenUntilRef.current[r._id];
+    return !until || until <= now;
+  });
+  const topRequest = visibleRequests[0] ?? null;
+
+  // Drive the accept window for whichever request is currently on top.
+  // No visible countdown text — the button itself drains, and once the
+  // window closes the card is hidden for a cooldown period rather than
+  // declined server-side (no decline endpoint exists yet).
+  useEffect(() => {
+    if (timeoutRef.current) {
+      clearTimeout(timeoutRef.current);
+      timeoutRef.current = null;
+    }
+    if (!topRequest) return;
+
+    const requestId = topRequest._id;
+    timeoutRef.current = setTimeout(() => {
+      hiddenUntilRef.current[requestId] = Date.now() + HIDE_AFTER_TIMEOUT_MS;
+      setHiddenTick((t) => t + 1);
+    }, ACCEPT_WINDOW_MS);
+
+    return () => {
+      if (timeoutRef.current) clearTimeout(timeoutRef.current);
+    };
+  }, [topRequest?._id]);
+
+  // Bring cooldown requests back once their window passes, so the queue
+  // doesn't get permanently stuck skipping them if nothing else comes in.
+  useEffect(() => {
+    const pending = Object.values(hiddenUntilRef.current);
+    if (pending.length === 0) return;
+    const soonest = Math.min(...pending);
+    const delay = Math.max(soonest - Date.now(), 0) + 50;
+    const id = setTimeout(() => {
+      const nowTs = Date.now();
+      for (const key of Object.keys(hiddenUntilRef.current)) {
+        if (hiddenUntilRef.current[key] <= nowTs) delete hiddenUntilRef.current[key];
+      }
+      setHiddenTick((t) => t + 1);
+    }, delay);
+    return () => clearTimeout(id);
+  }, [hiddenTick, requests]);
+
   // The hook's own error (permission denied, GPS unavailable, etc.) takes
   // priority over a generic action error since it explains *why* nothing
   // else is working.
@@ -193,8 +259,6 @@ export default function DashboardHomePage() {
   }
 
   // ---- ONLINE VIEW: full map + bottom-docked searching/request panel ----
-  const topRequest = requests[0] ?? null;
-
   return (
     <div className="flex h-[calc(100vh-4rem)] flex-col">
       <div className="relative flex-1">
@@ -244,15 +308,44 @@ export default function DashboardHomePage() {
           <p className="mt-2 text-xs font-semibold text-slate-400">Drop-off</p>
           <p className="text-sm font-semibold text-brand">{topRequest.dropoff}</p>
           {topRequest.note && <p className="mt-2 text-sm text-steel">{topRequest.note}</p>}
+
           <button
             onClick={() => handleAccept(topRequest._id)}
             disabled={acceptingId === topRequest._id}
-            className="mt-4 w-full rounded-xl bg-brand-accent py-3 text-sm font-bold text-white transition-transform duration-150 active:scale-[0.98] disabled:opacity-60"
+            className="relative mt-4 w-full overflow-hidden rounded-xl bg-brand-accent py-3 text-sm font-bold text-white transition-transform duration-150 active:scale-[0.98] disabled:opacity-60"
           >
-            {acceptingId === topRequest._id ? "Accepting…" : "Accept delivery"}
+            {/* Water-fill drain: starts full, empties over the accept
+                window. Remounts (via the card's key={topRequest._id})
+                each time a new request takes the top slot, so the
+                animation always restarts from full. Purely visual —
+                carries no numeric countdown. */}
+            {acceptingId !== topRequest._id && (
+              <span
+                key={topRequest._id}
+                aria-hidden
+                className="pointer-events-none absolute inset-x-0 bottom-0 bg-white/25"
+                style={{
+                  animation: `accept-water-drain ${ACCEPT_WINDOW_MS}ms linear forwards`,
+                }}
+              />
+            )}
+            <span className="relative">
+              {acceptingId === topRequest._id ? "Accepting…" : "Accept delivery"}
+            </span>
           </button>
         </div>
       )}
+
+      <style jsx>{`
+        @keyframes accept-water-drain {
+          from {
+            height: 100%;
+          }
+          to {
+            height: 0%;
+          }
+        }
+      `}</style>
     </div>
   );
 }

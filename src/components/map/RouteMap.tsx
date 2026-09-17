@@ -13,6 +13,7 @@ export interface LatLng {
 
 const ROUTE_SOURCE_ID = "rider-route";
 const ROUTE_LAYER_ID = "rider-route-line";
+const MARKER_ANIM_MS = 1000;
 
 interface RouteMapProps {
   pickup?: LatLng | null;
@@ -22,6 +23,11 @@ interface RouteMapProps {
   className?: string;
   onError?: () => void;
   showControls?: boolean;
+  // When true, the camera eases toward courierLocation on every update
+  // instead of only re-fitting when the route line changes. Pauses
+  // automatically if the rider manually drags/zooms the map, so it never
+  // fights the user — resumes on the next route recalculation.
+  followCourier?: boolean;
 }
 
 export default function RouteMap({
@@ -32,6 +38,7 @@ export default function RouteMap({
   className,
   onError,
   showControls = true,
+  followCourier = false,
 }: RouteMapProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<mapboxgl.Map | null>(null);
@@ -46,6 +53,15 @@ export default function RouteMap({
   // (sources can't be added until then) — stash it here and flush it
   // once the "load" event fires.
   const pendingRouteRef = useRef<RouteGeometry | null | undefined>(undefined);
+
+  // Smooth marker animation state
+  const courierCurrentRef = useRef<[number, number] | null>(null);
+  const courierAnimFrameRef = useRef<number | null>(null);
+
+  // Camera-follow state
+  const followCourierRef = useRef(followCourier);
+  followCourierRef.current = followCourier;
+  const followPausedRef = useRef(false);
 
   useEffect(() => {
     if (!containerRef.current || mapRef.current) return;
@@ -70,6 +86,12 @@ export default function RouteMap({
         "bottom-right"
       );
     }
+
+    // If the rider manually pans/zooms while we're following them, stop
+    // fighting their input — resume once the destination/route changes.
+    map.on("dragstart", () => {
+      followPausedRef.current = true;
+    });
 
     loadedRef.current = false;
     map.once("load", () => {
@@ -120,6 +142,7 @@ export default function RouteMap({
       }
       mapRef.current = null;
       loadedRef.current = false;
+      if (courierAnimFrameRef.current) cancelAnimationFrame(courierAnimFrameRef.current);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [showControls]);
@@ -135,6 +158,8 @@ export default function RouteMap({
       geometry: geometry ?? { type: "LineString", coordinates: [] },
     });
     if (geometry && geometry.coordinates.length > 1) {
+      // A fresh route means a new leg of the trip — resume following.
+      followPausedRef.current = false;
       const bounds = geometry.coordinates.reduce(
         (b, c) => b.extend(c as [number, number]),
         new mapboxgl.LngLatBounds(geometry.coordinates[0], geometry.coordinates[0])
@@ -195,24 +220,50 @@ export default function RouteMap({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [dropoff?.lat, dropoff?.lng]);
 
-  // The courier's own live position.
+  // The courier's own live position — animates smoothly between GPS
+  // points instead of snapping, and optionally drags the camera along.
   useEffect(() => {
     if (!mapRef.current) return;
     if (!courierLocation) {
       courierMarkerRef.current?.remove();
       courierMarkerRef.current = null;
+      courierCurrentRef.current = null;
       return;
     }
+
+    const to: [number, number] = [courierLocation.lng, courierLocation.lat];
+
     if (!courierMarkerRef.current) {
       const el = document.createElement("div");
       el.className =
         "flex h-8 w-8 items-center justify-center rounded-full border-2 border-white bg-brand text-base shadow-lg";
       el.textContent = "🏍️";
       courierMarkerRef.current = new mapboxgl.Marker({ element: el })
-        .setLngLat([courierLocation.lng, courierLocation.lat])
+        .setLngLat(to)
         .addTo(mapRef.current);
+      courierCurrentRef.current = to;
     } else {
-      courierMarkerRef.current.setLngLat([courierLocation.lng, courierLocation.lat]);
+      const from = courierCurrentRef.current ?? to;
+      if (courierAnimFrameRef.current) cancelAnimationFrame(courierAnimFrameRef.current);
+
+      const start = performance.now();
+      const marker = courierMarkerRef.current;
+      const step = (now: number) => {
+        const t = Math.min((now - start) / MARKER_ANIM_MS, 1);
+        const lng = from[0] + (to[0] - from[0]) * t;
+        const lat = from[1] + (to[1] - from[1]) * t;
+        marker.setLngLat([lng, lat]);
+        if (t < 1) {
+          courierAnimFrameRef.current = requestAnimationFrame(step);
+        } else {
+          courierCurrentRef.current = to;
+        }
+      };
+      courierAnimFrameRef.current = requestAnimationFrame(step);
+    }
+
+    if (followCourierRef.current && !followPausedRef.current) {
+      mapRef.current.easeTo({ center: to, duration: MARKER_ANIM_MS });
     }
   }, [courierLocation?.lat, courierLocation?.lng]);
 
