@@ -12,6 +12,9 @@
     "lint": "next lint"
   },
   "dependencies": {
+    "@capacitor/android": "^8.5.2",
+    "@capacitor/cli": "^8.5.2",
+    "@capacitor/core": "^8.5.2",
     "firebase": "^12.18.0",
     "firebase-admin": "^14.3.0",
     "ioredis": "^6.0.0",

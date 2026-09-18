@@ -78,6 +78,10 @@ export default function RouteMap({
     });
 
     map.touchZoomRotate.disableRotation();
+    // compact:true collapses this to a small "i" icon by default — the
+    // extra CSS below shrinks it further/lightens its background so it
+    // stays unobtrusive on small map boxes without removing it (Mapbox's
+    // free/pay-as-you-go terms require attribution to remain visible).
     map.addControl(new mapboxgl.AttributionControl({ compact: true }));
 
     if (showControls) {
@@ -284,5 +288,30 @@ export default function RouteMap({
     mapRef.current.fitBounds(bounds, { padding: 60, maxZoom: 15 });
   }
 
-  return <div ref={containerRef} className={className ?? "h-64 w-full rounded-2xl"} />;
+  return (
+    <div className={`crafteey-map-shell relative overflow-hidden ${className ?? "h-64 w-full rounded-2xl"}`}>
+      <div ref={containerRef} className="h-full w-full" />
+      {/* Shrinks Mapbox's required attribution control down to something
+          unobtrusive on small map boxes. It can be made small but not
+          removed — Mapbox's terms require it to stay visible. */}
+      <style jsx global>{`
+        .crafteey-map-shell .mapboxgl-ctrl-attrib {
+          font-size: 8px !important;
+          line-height: 1.2 !important;
+          padding: 0 4px !important;
+          background: rgba(255, 255, 255, 0.5) !important;
+        }
+        .crafteey-map-shell .mapboxgl-ctrl-attrib a {
+          font-size: 8px !important;
+        }
+        .crafteey-map-shell .mapboxgl-ctrl-attrib.mapboxgl-compact {
+          min-height: 16px;
+        }
+        .crafteey-map-shell .mapboxgl-ctrl-bottom-left {
+          transform: scale(0.85);
+          transform-origin: bottom left;
+        }
+      `}</style>
+    </div>
+  );
 }
