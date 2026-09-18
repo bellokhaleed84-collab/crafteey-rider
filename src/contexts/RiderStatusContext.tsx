@@ -115,6 +115,16 @@ export function RiderStatusProvider({ children }: { children: ReactNode }) {
     });
     const activeData = await activeRes.json().catch(() => ({}));
     if (activeData.request) {
+      // Rider has a job in progress — the queue is irrelevant until it's
+      // done. Clear it (and any pending hide/reveal timers) so a stale
+      // request from before acceptance can't keep cycling through the
+      // ring UI for the entire duration of the delivery. Previously this
+      // branch returned without touching `requests` at all, so the array
+      // stayed frozen on the just-accepted request and the accept-window
+      // hide/reveal timers kept re-surfacing it every ~28s — that was the
+      // "same ride keeps ringing again and again" bug.
+      setRequests([]);
+      hiddenUntilRef.current = {};
       router.replace("/dashboard/active");
       return;
     }
@@ -171,6 +181,10 @@ export function RiderStatusProvider({ children }: { children: ReactNode }) {
         const data = await res.json().catch(() => ({}));
         throw new Error(data.error || "Couldn't accept this request.");
       }
+      // Clear immediately on success too — don't wait up to 6s for the
+      // next poll to notice there's an active job now.
+      setRequests([]);
+      hiddenUntilRef.current = {};
       router.push("/dashboard/active");
     } catch (err: any) {
       setAcceptError(err.message || "Couldn't accept this request.");
