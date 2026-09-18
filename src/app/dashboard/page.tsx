@@ -4,10 +4,10 @@ import { useRouter } from "next/navigation";
 import MapOrFallback from "@/components/map/MapOrFallback";
 import { useRiderStatus } from "@/contexts/RiderStatusContext";
 
-// This is now the permanent base screen — the online/offline toggle lives
-// here and stays here, so going online no longer replaces this page with
-// a different view. Tapping the map box while online is what opens the
-// full-screen search view at /dashboard/online.
+// Permanent base screen — the online/offline toggle lives here. Going
+// online now takes the rider straight into the search view; tapping the
+// map box does the same thing once already online, so both paths lead to
+// the same place.
 export default function DashboardHomePage() {
   const router = useRouter();
   const { isOnline, togglingOnline, toggleOnline, location, permissionState, geoError } =
@@ -16,6 +16,16 @@ export default function DashboardHomePage() {
   function handleMapTap() {
     if (!isOnline) return;
     router.push("/dashboard/online");
+  }
+
+  async function handleToggleClick() {
+    const wasOffline = !isOnline;
+    await toggleOnline();
+    // Only auto-navigate on the offline -> online transition. Going
+    // offline should just leave the rider on Home, not redirect them.
+    if (wasOffline) {
+      router.push("/dashboard/online");
+    }
   }
 
   return (
@@ -34,15 +44,15 @@ export default function DashboardHomePage() {
         onClick={handleMapTap}
         disabled={!isOnline}
         aria-label={isOnline ? "Open the live map to search for deliveries" : "Map preview"}
-        className={`block w-full overflow-hidden rounded-2xl border border-slate-200 text-left transition-transform duration-150 ${
-          isOnline ? "active:scale-[0.99]" : "cursor-default"
+        className={`mx-auto block aspect-square w-full max-w-sm overflow-hidden rounded-2xl border-2 border-slate-300 shadow-md transition-transform duration-150 ${
+          isOnline ? "active:scale-[0.98]" : "cursor-default"
         }`}
       >
-        <MapOrFallback courierLocation={location} className="h-56 w-full" />
+        <MapOrFallback courierLocation={location} className="h-full w-full" />
       </button>
 
       <button
-        onClick={toggleOnline}
+        onClick={handleToggleClick}
         disabled={togglingOnline}
         className={`w-full rounded-xl py-3 text-sm font-bold text-white transition-transform duration-150 active:scale-95 disabled:opacity-60 disabled:[animation:none] ${
           isOnline ? "bg-slate-700" : "bg-brand-accent"
