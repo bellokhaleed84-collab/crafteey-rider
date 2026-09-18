@@ -30,6 +30,12 @@ interface ActiveRequest {
   status: string;
   clientName: string;
   clientPhone: string;
+  // Optional — older requests created before these fields existed won't
+  // have them, so every read falls back to clientName/clientPhone.
+  pickupContactName?: string;
+  pickupContactPhone?: string;
+  receiverName?: string;
+  receiverPhone?: string;
 }
 
 // How often we're willing to re-hit the Directions API on a timer while
@@ -43,13 +49,8 @@ const DEVIATION_THRESHOLD_METERS = 60;
 const ARRIVAL_THRESHOLD_METERS = 60;
 
 // --- Bottom sheet sizing ---
-// How much of the sheet stays visible (as a sliver) when collapsed —
-// this is the drag-handle + status/distance row.
 const SHEET_PEEK_PX = 136;
-// How tall the sheet is when fully expanded, as a fraction of the
-// viewport. Content inside scrolls if it's taller than this.
 const SHEET_EXPANDED_RATIO = 0.82;
-// A pointer move shorter than this counts as a tap, not a drag.
 const TAP_THRESHOLD_PX = 6;
 
 export default function ActiveDeliveryPage() {
@@ -64,16 +65,21 @@ export default function ActiveDeliveryPage() {
   const [dropoffCoords, setDropoffCoords] = useState<LatLng | null>(null);
   const [geocodeError, setGeocodeError] = useState<string | null>(null);
 
+  // Live route: courier's current position → whichever point is the
+  // active destination for the current stage. Recalculated as the
+  // courier moves (see the effect below).
   const [route, setRoute] = useState<RouteResult | null>(null);
   const [recalculating, setRecalculating] = useState(false);
   const routeRef = useRef<RouteResult | null>(null);
   const lastRouteFetchRef = useRef(0);
   const lastRouteDestKeyRef = useRef<string | null>(null);
 
-  // Arrival is detected passively (below), but advancing the delivery now
-  // requires an explicit tap to confirm — this just tracks whether that
-  // confirmation has happened for the current stage. Reset whenever the
-  // stage changes (see handleAdvance) so it doesn't carry over.
+  // Static route: pickup → dropoff. Doesn't depend on the courier's
+  // position at all, so it's fetched once (per pickup/dropoff pair) and
+  // left alone — this is what lets the "pickup → drop-off" distance show
+  // up as a preview even before the courier has picked anything up.
+  const [pickupToDropoffRoute, setPickupToDropoffRoute] = useState<RouteResult | null>(null);
+
   const [arrivalConfirmed, setArrivalConfirmed] = useState(false);
 
   // --- Bottom sheet state ---
@@ -118,10 +124,8 @@ export default function ActiveDeliveryPage() {
     setLiveTranslate(null);
 
     if (dragDistance < TAP_THRESHOLD_PX) {
-      // Barely moved — treat it as a tap on the handle, just toggle.
       setSheetExpanded((v) => !v);
     } else {
-      // Real drag — snap to whichever state it ended up closer to.
       setSheetExpanded(current < collapsedTranslate / 2);
     }
   }
@@ -155,9 +159,6 @@ export default function ActiveDeliveryPage() {
 
   const requestId = request?._id;
 
-  // Status is the single source of truth for what stage of navigation
-  // we're in — the map, route target, labels, and button all read from
-  // this rather than separate ad-hoc checks.
   const stage = request ? NAVIGATION_STAGES[request.status] : undefined;
   const showDropoff = stage?.destination === "dropoff";
   const destination = showDropoff ? dropoffCoords : pickupCoords;
@@ -180,9 +181,11 @@ export default function ActiveDeliveryPage() {
     };
   }, [request?.pickup, request?.pickupLat, request?.pickupLng]);
 
-  // Only resolve drop-off coordinates once pickup is done.
+  // Resolve drop-off coordinates immediately too, not gated on stage —
+  // needed up front now so the "pickup → drop-off" distance can be shown
+  // as a preview even while the courier is still heading to pickup.
   useEffect(() => {
-    if (!showDropoff || !request) return;
+    if (!request) return;
     if (request.dropoffLat != null && request.dropoffLng != null) {
       setDropoffCoords({ lat: request.dropoffLat, lng: request.dropoffLng });
       return;
@@ -196,9 +199,22 @@ export default function ActiveDeliveryPage() {
     return () => {
       cancelled = true;
     };
-  }, [showDropoff, request?.dropoff, request?.dropoffLat, request?.dropoffLng]);
+  }, [request?.dropoff, request?.dropoffLat, request?.dropoffLng]);
 
-  // Share live location while a delivery is in progress.
+  // Fetch the static pickup → dropoff leg once both ends are known. Not
+  // tied to the courier's position, so this only re-runs if the
+  // pickup/dropoff coordinates themselves change.
+  useEffect(() => {
+    if (!pickupCoords || !dropoffCoords) return;
+    let cancelled = false;
+    getRoute(pickupCoords, dropoffCoords).then((result) => {
+      if (!cancelled && result) setPickupToDropoffRoute(result);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [pickupCoords?.lat, pickupCoords?.lng, dropoffCoords?.lat, dropoffCoords?.lng]);
+
   const geo = useGeolocation({
     onThrottledUpdate: async (coords: LatLng) => {
       if (!requestId) return;
@@ -222,9 +238,8 @@ export default function ActiveDeliveryPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [requestId]);
 
-  // Recalculate the route on a timer, immediately when the destination
-  // changes, or immediately if the rider has strayed off the current
-  // route line (deviation) rather than waiting for the timer.
+  // Recalculate the live route on a timer, immediately when the
+  // destination changes, or immediately on deviation.
   useEffect(() => {
     if (!geo.location || !destination) {
       setRoute(null);
@@ -261,8 +276,6 @@ export default function ActiveDeliveryPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [geo.location?.lat, geo.location?.lng, destination?.lat, destination?.lng]);
 
-  // Arrival detection — straight-line distance from the rider to whichever
-  // point (pickup or drop-off) is currently the target.
   const hasArrived =
     !!geo.location && !!destination && distanceMeters(geo.location, destination) <= ARRIVAL_THRESHOLD_METERS;
 
@@ -285,13 +298,9 @@ export default function ActiveDeliveryPage() {
         router.replace("/dashboard");
       } else {
         setRequest(data.request);
-        // New stage, new destination — don't wait for the throttle.
         lastRouteFetchRef.current = 0;
         lastRouteDestKeyRef.current = null;
-        // New stage means arrival needs to be confirmed again for it.
         setArrivalConfirmed(false);
-        // Collapse back to the map so the rider sees the new route
-        // immediately instead of staring at the sheet.
         setSheetExpanded(false);
       }
     } catch (err: any) {
@@ -306,11 +315,37 @@ export default function ActiveDeliveryPage() {
   }
 
   const displayError = geo.error ?? geocodeError ?? error;
-  const distanceToNextLabel = showDropoff ? "to drop-off" : "to pickup";
+
+  // --- Two-leg distance display ---
+  // Leg 1: courier → pickup. Live and shrinking while that's the active
+  // stage; once the courier has picked up, it's done — show a checkmark
+  // instead of a stale number.
+  const toPickupDistance = stage.destination === "pickup" ? route?.distanceMeters ?? null : null;
+  const toPickupDone = stage.destination !== "pickup";
+
+  // Leg 2: pickup → dropoff. Live and shrinking once that becomes the
+  // active stage (using the same live `route`, which by then targets
+  // dropoffCoords); before that, show the static preview distance.
+  const pickupToDropoffDistance =
+    stage.destination === "dropoff"
+      ? route?.distanceMeters ?? pickupToDropoffRoute?.distanceMeters ?? null
+      : pickupToDropoffRoute?.distanceMeters ?? null;
+
+  // --- Contact card: pickup contact while heading to pickup, receiver
+  // once heading to drop-off. Falls back to the booking client's own
+  // name/phone for requests created before these fields existed.
+  const contactLabel = stage.destination === "dropoff" ? "Receiver" : "Pickup contact";
+  const contactName =
+    stage.destination === "dropoff"
+      ? request.receiverName || request.clientName
+      : request.pickupContactName || request.clientName;
+  const contactPhone =
+    stage.destination === "dropoff"
+      ? request.receiverPhone || request.clientPhone
+      : request.pickupContactPhone || request.clientPhone;
 
   return (
     <div className="fixed inset-0 z-0 overflow-hidden bg-slate-100">
-      {/* Full-bleed map */}
       <RouteMap
         pickup={showDropoff ? null : pickupCoords}
         dropoff={showDropoff ? dropoffCoords : null}
@@ -320,7 +355,6 @@ export default function ActiveDeliveryPage() {
         className="h-full w-full"
       />
 
-      {/* Top overlays */}
       <div className="pointer-events-none absolute inset-x-0 top-0 z-10 flex items-start justify-between p-3">
         {route ? (
           <div className="pointer-events-auto rounded-xl bg-white/95 px-3 py-2 shadow">
@@ -343,7 +377,6 @@ export default function ActiveDeliveryPage() {
         </div>
       )}
 
-      {/* Navigate FAB — only shown collapsed so it never fights the expanded sheet */}
       {destination && !sheetExpanded && (
         <a
           href={getGoogleMapsDirectionsUrl(destination.lat, destination.lng)}
@@ -359,7 +392,6 @@ export default function ActiveDeliveryPage() {
         </a>
       )}
 
-      {/* Tap-to-collapse backdrop while expanded */}
       {sheetExpanded && (
         <div
           className="absolute inset-0 z-10 bg-black/20"
@@ -367,7 +399,6 @@ export default function ActiveDeliveryPage() {
         />
       )}
 
-      {/* Bottom sheet */}
       <div
         className="absolute inset-x-0 bottom-0 z-20 flex flex-col rounded-t-3xl bg-white shadow-[0_-4px_24px_rgba(0,0,0,0.12)]"
         style={{
@@ -376,7 +407,6 @@ export default function ActiveDeliveryPage() {
           transition: liveTranslate === null ? "transform 220ms ease" : "none",
         }}
       >
-        {/* Drag handle + collapsed summary row — this is the draggable/tappable part */}
         <div
           onPointerDown={handleSheetPointerDown}
           onPointerMove={handleSheetPointerMove}
@@ -390,13 +420,31 @@ export default function ActiveDeliveryPage() {
               <span className="inline-block rounded-full bg-blue-100 px-2.5 py-1 text-xs font-semibold text-blue-700">
                 {stage.statusLabel}
               </span>
-              <p className="mt-1.5 text-base font-bold text-brand">
-                {route ? formatDistance(route.distanceMeters) : "—"}{" "}
-                <span className="font-medium text-steel">{distanceToNextLabel}</span>
-              </p>
+
+              {/* Two-leg distance summary */}
+              <div className="mt-1.5 space-y-0.5">
+                <p className="text-sm leading-tight">
+                  {toPickupDone ? (
+                    <span className="font-semibold text-emerald-600">✓ Picked up</span>
+                  ) : (
+                    <>
+                      <span className="font-bold text-brand">
+                        {toPickupDistance != null ? formatDistance(toPickupDistance) : "—"}
+                      </span>{" "}
+                      <span className="text-xs font-medium text-steel">to pickup</span>
+                    </>
+                  )}
+                </p>
+                <p className="text-sm leading-tight">
+                  <span className={stage.destination === "dropoff" ? "font-bold text-brand" : "font-semibold text-steel"}>
+                    {pickupToDropoffDistance != null ? formatDistance(pickupToDropoffDistance) : "—"}
+                  </span>{" "}
+                  <span className="text-xs font-medium text-steel">pickup → drop-off</span>
+                </p>
+              </div>
             </div>
             <svg
-              className={`h-5 w-5 text-slate-400 transition-transform ${sheetExpanded ? "rotate-180" : ""}`}
+              className={`h-5 w-5 shrink-0 text-slate-400 transition-transform ${sheetExpanded ? "rotate-180" : ""}`}
               fill="none"
               viewBox="0 0 24 24"
               stroke="currentColor"
@@ -406,7 +454,6 @@ export default function ActiveDeliveryPage() {
           </div>
         </div>
 
-        {/* Expanded content — scrolls internally if it overflows the sheet */}
         <div className="flex-1 overflow-y-auto px-5 pb-6">
           {geo.permissionState === "denied" && (
             <p className="mb-3 text-xs text-red-600">
@@ -427,18 +474,15 @@ export default function ActiveDeliveryPage() {
           )}
 
           <div className="mt-5 rounded-xl bg-slate-50 p-4">
-            <p className="text-xs font-semibold text-slate-400">Client</p>
-            <p className="text-sm font-semibold text-brand">{request.clientName}</p>
+            <p className="text-xs font-semibold text-slate-400">{contactLabel}</p>
+            <p className="text-sm font-semibold text-brand">{contactName}</p>
             <div className="mt-3 flex gap-2">
               <a
-                href={`tel:${request.clientPhone}`}
+                href={`tel:${contactPhone}`}
                 className="flex-1 rounded-xl bg-brand-accent py-2.5 text-center text-sm font-semibold text-white transition-transform duration-150 active:scale-[0.98]"
               >
                 Call
               </a>
-              {/* No chat backend exists yet — this is a placeholder so the
-                  layout is ready to wire up once a real chat/messages
-                  endpoint exists. Currently disabled, not dead. */}
               <button
                 type="button"
                 disabled
