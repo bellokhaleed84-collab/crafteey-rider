@@ -1,9 +1,6 @@
 import { Schema, models, model } from "mongoose";
-import { COURIER_STATUS } from "@/lib/constants";
+import { COURIER_STATUS, VEHICLE_TYPES } from "@/lib/constants";
 
-// Must match crafteey-client's CourierRequest schema field-for-field —
-// this app reads/writes the same collection in the same database, just
-// from the courier's side (accept, update status, share location).
 const CourierRequestSchema = new Schema(
   {
     clientUid: { type: String, required: true, index: true },
@@ -17,6 +14,12 @@ const CourierRequestSchema = new Schema(
     dropoffLat: { type: Number, default: null },
     dropoffLng: { type: Number, default: null },
 
+    receiverName: { type: String, default: "" },
+    receiverPhone: { type: String, default: "" },
+    pickupContactName: { type: String, default: "" },
+    pickupContactPhone: { type: String, default: "" },
+    vehicleType: { type: String, enum: VEHICLE_TYPES, required: true, index: true },
+
     note: { type: String, default: "" },
 
     status: {
@@ -25,6 +28,12 @@ const CourierRequestSchema = new Schema(
       default: COURIER_STATUS.PENDING,
       index: true,
     },
+
+    // Riders who let this request time out or explicitly declined it —
+    // excluded from seeing it again in their own queue, but it stays
+    // open and visible to every other matching rider until someone
+    // accepts it or it's declined by everyone eligible.
+    declinedBy: { type: [String], default: [] },
 
     // Populated once a courier accepts.
     courierUid: { type: String, default: null, index: true },

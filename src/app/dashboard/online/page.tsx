@@ -4,6 +4,12 @@ import { useRouter } from "next/navigation";
 import MapOrFallback from "@/components/map/MapOrFallback";
 import { useRiderStatus } from "@/contexts/RiderStatusContext";
 
+const VEHICLE_ICON: Record<string, string> = {
+  Bicycle: "🚲",
+  Motorcycle: "🏍️",
+  Cargo: "🚚",
+};
+
 // Full-screen search view — entered by tapping the map box on Home.
 // Location sharing and queue polling keep running from RiderStatusContext
 // regardless of whether this screen or Home is mounted, so the back arrow
@@ -75,7 +81,12 @@ export default function OnlineSearchPage() {
           style={{ animation: "sheet-slide-up 0.35s ease-out" }}
         >
           <div className="mx-auto mb-3 h-1.5 w-10 rounded-full bg-slate-200" />
-          <p className="text-xs font-semibold text-slate-400">New delivery request</p>
+          <div className="flex items-center justify-between">
+            <p className="text-xs font-semibold text-slate-400">New delivery request</p>
+            <span className="rounded-full bg-brand/10 px-2 py-0.5 text-xs font-semibold text-brand">
+              {VEHICLE_ICON[topRequest.vehicleType] ?? ""} {topRequest.vehicleType}
+            </span>
+          </div>
           <p className="mt-2 text-xs font-semibold text-slate-400">Pickup</p>
           <p className="text-sm font-semibold text-brand">{topRequest.pickup}</p>
           <p className="mt-2 text-xs font-semibold text-slate-400">Drop-off</p>
@@ -87,10 +98,6 @@ export default function OnlineSearchPage() {
             disabled={acceptingId === topRequest._id}
             className="relative mt-4 w-full overflow-hidden rounded-xl bg-brand-accent py-3 text-sm font-bold text-white transition-transform duration-150 active:scale-[0.98] disabled:opacity-60"
           >
-            {/* Water-fill drain: starts full, empties over the accept
-                window. Remounts (via key={topRequest._id}) each time a
-                new request takes the top slot, so it always restarts
-                from full. Purely visual — no numeric countdown. */}
             {acceptingId !== topRequest._id && (
               <span
                 key={topRequest._id}

@@ -19,14 +19,13 @@ export interface QueueRequest {
   dropoff: string;
   note: string;
   createdAt: string;
+  vehicleType: string;
 }
 
-// How long a request stays visible before it's auto-hidden from view.
 const ACCEPT_WINDOW_MS = 8000;
-// How long a timed-out request stays hidden before it's eligible to
-// resurface (there's no decline endpoint yet, so this is purely a
-// client-side "don't stare at the same expired card" cooldown — it can
-// still come back if nothing else is in the queue).
+// Local cooldown before a re-poll could show this card again — now just
+// a safety net for the gap between the decline call landing and the
+// next poll, not the primary decline mechanism.
 const HIDE_AFTER_TIMEOUT_MS = 20000;
 
 interface RiderStatusContextType {
@@ -46,11 +45,6 @@ interface RiderStatusContextType {
 
 const RiderStatusContext = createContext<RiderStatusContextType | undefined>(undefined);
 
-// Lives at the dashboard layout level — not inside a single page — so
-// going online, live location sharing, and the delivery-request queue all
-// keep running in the background no matter which screen under /dashboard
-// the rider is currently looking at. Previously this all lived inside
-// dashboard/page.tsx, which meant navigating away silently dropped it.
 export function RiderStatusProvider({ children }: { children: ReactNode }) {
   const router = useRouter();
   const { getIdToken } = useAuth();
@@ -83,9 +77,6 @@ export function RiderStatusProvider({ children }: { children: ReactNode }) {
     onThrottledUpdate: (coords) => sendPresence(true, coords),
   });
 
-  // Restore online state on mount/refresh so a page reload doesn't
-  // silently flip the rider offline in the UI while the DB still thinks
-  // they're online.
   useEffect(() => {
     (async () => {
       const token = await getIdToken();
@@ -108,21 +99,11 @@ export function RiderStatusProvider({ children }: { children: ReactNode }) {
     const token = await getIdToken();
     if (!token) return;
 
-    // If this courier already has an active delivery, send them there —
-    // they can't accept a second job.
     const activeRes = await fetch("/api/courier-requests/active", {
       headers: { Authorization: `Bearer ${token}` },
     });
     const activeData = await activeRes.json().catch(() => ({}));
     if (activeData.request) {
-      // Rider has a job in progress — the queue is irrelevant until it's
-      // done. Clear it (and any pending hide/reveal timers) so a stale
-      // request from before acceptance can't keep cycling through the
-      // ring UI for the entire duration of the delivery. Previously this
-      // branch returned without touching `requests` at all, so the array
-      // stayed frozen on the just-accepted request and the accept-window
-      // hide/reveal timers kept re-surfacing it every ~28s — that was the
-      // "same ride keeps ringing again and again" bug.
       setRequests([]);
       hiddenUntilRef.current = {};
       router.replace("/dashboard/active");
@@ -138,8 +119,6 @@ export function RiderStatusProvider({ children }: { children: ReactNode }) {
     }
   }, [getIdToken, router]);
 
-  // Only poll the queue while online — keeps running regardless of which
-  // /dashboard screen is currently mounted.
   useEffect(() => {
     if (!isOnline) {
       setRequests([]);
@@ -181,22 +160,32 @@ export function RiderStatusProvider({ children }: { children: ReactNode }) {
         const data = await res.json().catch(() => ({}));
         throw new Error(data.error || "Couldn't accept this request.");
       }
-      // Clear immediately on success too — don't wait up to 6s for the
-      // next poll to notice there's an active job now.
       setRequests([]);
       hiddenUntilRef.current = {};
       router.push("/dashboard/active");
     } catch (err: any) {
       setAcceptError(err.message || "Couldn't accept this request.");
-      // Someone else may have taken it — refresh the list either way.
       checkActiveThenLoadQueue();
     } finally {
       setAcceptingId(null);
     }
   }
 
-  // Visible requests exclude anything still inside its post-timeout
-  // cooldown window.
+  // Fire-and-forget: tells the server this rider is done with this
+  // specific request so it stops being offered to them, without
+  // affecting other riders who can still see and accept it.
+  const declineOnServer = useCallback(
+    async (id: string) => {
+      const token = await getIdToken();
+      if (!token) return;
+      fetch(`/api/courier-requests/${id}/decline`, {
+        method: "PATCH",
+        headers: { Authorization: `Bearer ${token}` },
+      }).catch(() => {});
+    },
+    [getIdToken]
+  );
+
   const now = Date.now();
   const visibleRequests = requests.filter((r) => {
     const until = hiddenUntilRef.current[r._id];
@@ -205,9 +194,10 @@ export function RiderStatusProvider({ children }: { children: ReactNode }) {
   const topRequest = visibleRequests[0] ?? null;
 
   // Drive the accept window for whichever request is currently on top.
-  // No visible countdown — the UI just drains a fill over this duration —
-  // and once the window closes the card is hidden for a cooldown period
-  // rather than declined server-side (no decline endpoint exists yet).
+  // On timeout: hide it locally right away (instant UI feedback) AND
+  // tell the server to decline it on this rider's behalf, so the next
+  // poll for every OTHER matching rider still shows it, but this rider
+  // never sees it resurface once the local cooldown clears.
   useEffect(() => {
     if (timeoutRef.current) {
       clearTimeout(timeoutRef.current);
@@ -219,15 +209,14 @@ export function RiderStatusProvider({ children }: { children: ReactNode }) {
     timeoutRef.current = setTimeout(() => {
       hiddenUntilRef.current[requestId] = Date.now() + HIDE_AFTER_TIMEOUT_MS;
       setHiddenTick((t) => t + 1);
+      declineOnServer(requestId);
     }, ACCEPT_WINDOW_MS);
 
     return () => {
       if (timeoutRef.current) clearTimeout(timeoutRef.current);
     };
-  }, [topRequest?._id]);
+  }, [topRequest?._id, declineOnServer]);
 
-  // Bring cooldown requests back once their window passes, so the queue
-  // doesn't get permanently stuck skipping them if nothing else comes in.
   useEffect(() => {
     const pending = Object.values(hiddenUntilRef.current);
     if (pending.length === 0) return;
