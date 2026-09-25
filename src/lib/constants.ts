@@ -24,7 +24,9 @@ export const COURIER_ACCOUNT_STATUS = {
 export type CourierAccountStatus =
   (typeof COURIER_ACCOUNT_STATUS)[keyof typeof COURIER_ACCOUNT_STATUS];
 
-export const VEHICLE_TYPES = ["Motorcycle", "Bicycle", "Car", "Van/Truck"] as const;
+// Lowercase, matching crafteey-client's calculateDeliveryFee vehicle types
+// exactly — no translation needed when a Hub order creates a CourierRequest.
+export const VEHICLE_TYPES = ["bicycle", "motorcycle", "cargo"] as const;
 export type VehicleType = (typeof VEHICLE_TYPES)[number];
 
 // ---------------------------------------------------------------------

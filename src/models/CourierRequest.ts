@@ -22,6 +22,14 @@ const CourierRequestSchema = new Schema(
 
     note: { type: String, default: "" },
 
+    // New — distinguishes a Hub-order-triggered request from a direct
+    // Rides booking, and carries what a Hub pickup needs that a direct
+    // booking doesn't.
+    source: { type: String, enum: ["direct", "hub"], default: "direct", index: true },
+    hubOrderId: { type: String, default: null, index: true },
+    vendorName: { type: String, default: "" },
+    pickupCode: { type: String, default: null },
+
     status: {
       type: String,
       enum: Object.values(COURIER_STATUS),
@@ -29,13 +37,8 @@ const CourierRequestSchema = new Schema(
       index: true,
     },
 
-    // Riders who let this request time out or explicitly declined it —
-    // excluded from seeing it again in their own queue, but it stays
-    // open and visible to every other matching rider until someone
-    // accepts it or it's declined by everyone eligible.
     declinedBy: { type: [String], default: [] },
 
-    // Populated once a courier accepts.
     courierUid: { type: String, default: null, index: true },
     courierName: { type: String, default: null },
     courierPhone: { type: String, default: null },
