@@ -23,6 +23,10 @@ export interface QueueRequest {
   riderEarningKobo?: number | null;
   orderNumber?: string | null;
   vendorName?: string;
+  pickupLat?: number | null;
+  pickupLng?: number | null;
+  dropoffLat?: number | null;
+  dropoffLng?: number | null;
 }
 
 const ACCEPT_WINDOW_MS = 8000;

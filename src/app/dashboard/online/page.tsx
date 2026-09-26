@@ -1,6 +1,8 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
+import { Clock, MapPin, MessageSquare, Package, ShieldCheck, ArrowRight } from "lucide-react";
 import MapOrFallback from "@/components/map/MapOrFallback";
 import { useRiderStatus } from "@/contexts/RiderStatusContext";
 
@@ -10,8 +12,38 @@ const VEHICLE_ICON: Record<string, string> = {
   cargo: "🚚",
 };
 
+const VEHICLE_LABEL: Record<string, string> = {
+  bicycle: "Bicycle",
+  motorcycle: "Motorcycle",
+  cargo: "Cargo",
+};
+
+// Rough average speeds for an ETA estimate — same assumption used on the
+// client side's fare estimate, kept local here rather than importing a
+// shared lib since this file only needs it for display, not pricing.
+const AVERAGE_SPEED_KMH: Record<string, number> = {
+  bicycle: 15,
+  motorcycle: 30,
+  cargo: 20,
+};
+
+function haversineKm(a: { lat: number; lng: number }, b: { lat: number; lng: number }): number {
+  const toRad = (deg: number) => (deg * Math.PI) / 180;
+  const R = 6371;
+  const dLat = toRad(b.lat - a.lat);
+  const dLng = toRad(b.lng - a.lng);
+  const lat1 = toRad(a.lat);
+  const lat2 = toRad(b.lat);
+  const h = Math.sin(dLat / 2) ** 2 + Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLng / 2) ** 2;
+  return R * 2 * Math.atan2(Math.sqrt(h), Math.sqrt(1 - h));
+}
+
 function formatNaira(kobo: number): string {
   return `₦${Math.round(kobo / 100).toLocaleString()}`;
+}
+
+function formatKm(km: number): string {
+  return km < 1 ? `${Math.round(km * 1000)}m` : `${km.toFixed(1)} km`;
 }
 
 export default function OnlineSearchPage() {
@@ -28,29 +60,80 @@ export default function OnlineSearchPage() {
     permissionState,
   } = useRiderStatus();
 
+  const [secondsLeft, setSecondsLeft] = useState(Math.round(acceptWindowMs / 1000));
+
+  // Restart the visible countdown whenever a new request becomes the top
+  // one — purely cosmetic, the actual accept-window timeout and decline
+  // logic already live in RiderStatusContext.
+  useEffect(() => {
+    if (!topRequest) return;
+    setSecondsLeft(Math.round(acceptWindowMs / 1000));
+    const interval = setInterval(() => {
+      setSecondsLeft((s) => Math.max(s - 1, 0));
+    }, 1000);
+    return () => clearInterval(interval);
+  }, [topRequest?._id, acceptWindowMs]);
+
   if (!isOnline) {
     router.replace("/dashboard");
     return null;
   }
 
+  const hasPickupCoords = typeof topRequest?.pickupLat === "number" && typeof topRequest?.pickupLng === "number";
+  const hasDropoffCoords = typeof topRequest?.dropoffLat === "number" && typeof topRequest?.dropoffLng === "number";
+
+  const riderToPickupKm =
+    location && hasPickupCoords
+      ? haversineKm(location, { lat: topRequest!.pickupLat!, lng: topRequest!.pickupLng! })
+      : null;
+
+  const routeKm =
+    hasPickupCoords && hasDropoffCoords
+      ? haversineKm(
+          { lat: topRequest!.pickupLat!, lng: topRequest!.pickupLng! },
+          { lat: topRequest!.dropoffLat!, lng: topRequest!.dropoffLng! }
+        )
+      : null;
+
+  const etaMinutes =
+    routeKm !== null && topRequest
+      ? Math.round((routeKm / (AVERAGE_SPEED_KMH[topRequest.vehicleType] ?? 20)) * 60)
+      : null;
+
+  const isHubOrder = !!topRequest?.vendorName;
+
   return (
     <div className="flex h-[100dvh] flex-col">
-      {/* Map now takes less vertical space so the sheet sits higher and reads as the focus */}
-      <div className="relative h-[38vh] shrink-0">
+      <div className="relative h-[36vh] shrink-0">
         <MapOrFallback courierLocation={location} className="h-full w-full" />
 
-        <div className="absolute inset-x-0 top-0 flex items-center gap-3 p-4">
-          <button
-            onClick={() => router.push("/dashboard")}
-            aria-label="Back to home"
-            className="flex h-9 w-9 items-center justify-center rounded-full bg-white/90 text-lg font-bold text-brand shadow"
-          >
-            ←
-          </button>
-          <span className="rounded-full bg-white/90 px-3 py-1.5 text-xs font-semibold text-brand shadow">
-            🟢 Online
-          </span>
+        <div className="absolute inset-x-0 top-0 flex items-center justify-between p-4">
+          <div className="flex items-center gap-3">
+            <button
+              onClick={() => router.push("/dashboard")}
+              aria-label="Back to home"
+              className="flex h-9 w-9 items-center justify-center rounded-full bg-white/90 text-lg font-bold text-brand shadow"
+            >
+              ←
+            </button>
+            <span className="flex items-center gap-1 rounded-full bg-white/90 px-3 py-1.5 text-xs font-semibold text-brand shadow">
+              <span className="h-2 w-2 rounded-full bg-emerald-500" />
+              Online
+            </span>
+          </div>
         </div>
+
+        {topRequest && (
+          <div className="absolute bottom-3 left-4">
+            <span className="flex items-center gap-2 rounded-2xl bg-sunshine px-3 py-2 text-xs font-bold text-brand shadow">
+              <span className="text-base leading-none">{VEHICLE_ICON[topRequest.vehicleType] ?? ""}</span>
+              <span>
+                {VEHICLE_LABEL[topRequest.vehicleType] ?? topRequest.vehicleType}
+                <span className="block font-medium text-brand/60">Required vehicle</span>
+              </span>
+            </span>
+          </div>
+        )}
       </div>
 
       {(acceptError || (geoError && permissionState !== "denied")) && (
@@ -59,7 +142,7 @@ export default function OnlineSearchPage() {
         </p>
       )}
 
-      <div className="flex flex-1 flex-col justify-end">
+      <div className="flex flex-1 flex-col justify-end overflow-y-auto">
         {!topRequest ? (
           <div className="rounded-t-3xl border-t border-slate-200 bg-white px-5 pb-8 pt-6 shadow-[0_-8px_24px_rgba(0,0,0,0.12)]">
             <div className="mx-auto mb-5 h-1.5 w-10 rounded-full bg-slate-200" />
@@ -84,58 +167,109 @@ export default function OnlineSearchPage() {
           >
             <div className="mx-auto mb-4 h-1.5 w-10 rounded-full bg-slate-200" />
 
-            {/* Header: order # / vendor + vehicle badge */}
-            <div className="flex items-center justify-between">
+            {/* Category badge */}
+            <span className="inline-flex items-center gap-1.5 rounded-full bg-sunshine px-3 py-1 text-xs font-bold text-brand">
+              {isHubOrder ? "🍔 Food Delivery" : "📦 Delivery"}
+            </span>
+
+            {/* Vendor / order header */}
+            <div className="mt-2 flex items-start justify-between gap-3">
               <div className="min-w-0">
-                <p className="text-xs font-semibold text-slate-400">
-                  {topRequest.orderNumber ? `Order ${topRequest.orderNumber}` : "New delivery request"}
+                <p className="truncate text-lg font-extrabold text-brand">
+                  {topRequest.vendorName || "New delivery request"}
                 </p>
-                {topRequest.vendorName && (
-                  <p className="truncate text-sm font-bold text-brand">{topRequest.vendorName}</p>
+                {topRequest.orderNumber && (
+                  <p className="text-xs font-medium text-steel">Order #{topRequest.orderNumber}</p>
                 )}
               </div>
-              <span className="shrink-0 rounded-full bg-brand/10 px-3 py-1 text-xs font-semibold text-brand">
-                {VEHICLE_ICON[topRequest.vehicleType] ?? ""} {topRequest.vehicleType}
-              </span>
             </div>
 
-            {/* Price — the number the rider actually cares about, front and center */}
-            {typeof topRequest.riderEarningKobo === "number" && (
-              <div className="mt-3 flex items-center justify-between rounded-xl bg-emerald-50 px-4 py-3">
-                <span className="text-xs font-semibold text-emerald-700">You'll earn</span>
-                <span className="text-lg font-extrabold text-emerald-700">
-                  {formatNaira(topRequest.riderEarningKobo)}
-                </span>
-              </div>
-            )}
-
-            {/* Route — pickup/dropoff with a connecting line, like the client-side RouteSummary */}
-            <div className="mt-4 flex items-start gap-3">
-              <div className="flex flex-col items-center pt-1">
-                <span className="h-3 w-3 rounded-full bg-emerald-500" />
-                <span className="my-1 h-8 w-px bg-slate-200" />
-                <span className="h-3 w-3 rounded-full bg-brand-accent" />
-              </div>
-              <div className="min-w-0 flex-1 space-y-3">
-                <div>
-                  <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">Pickup</p>
-                  <p className="text-sm font-semibold text-brand">{topRequest.pickup}</p>
+            {/* Earnings + payment method */}
+            <div className="mt-3 flex items-center gap-3">
+              {typeof topRequest.riderEarningKobo === "number" && (
+                <div className="flex-1 rounded-xl bg-emerald-50 px-4 py-3">
+                  <p className="text-xs font-semibold text-emerald-700">Your earnings</p>
+                  <p className="text-xl font-extrabold text-emerald-700">
+                    {formatNaira(topRequest.riderEarningKobo)}
+                  </p>
                 </div>
-                <div>
-                  <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">Drop-off</p>
-                  <p className="text-sm font-semibold text-brand">{topRequest.dropoff}</p>
+              )}
+              <div className="flex flex-1 items-center gap-2 rounded-xl bg-slate-50 px-3 py-3">
+                <ShieldCheck className="h-5 w-5 shrink-0 text-brand-accent" />
+                <div className="min-w-0">
+                  <p className="text-xs font-bold text-brand">In-app payment</p>
+                  <p className="text-[11px] text-steel">No cash</p>
                 </div>
               </div>
             </div>
 
+            {/* Route */}
+            <div className="mt-4 space-y-3">
+              <div className="flex items-start justify-between gap-3 border-b border-slate-100 pb-3">
+                <div className="flex items-start gap-3">
+                  <MapPin className="mt-0.5 h-5 w-5 shrink-0 text-emerald-500" />
+                  <div>
+                    <p className="text-sm font-bold text-brand">Pickup</p>
+                    <p className="text-sm text-slate-600">{topRequest.pickup}</p>
+                  </div>
+                </div>
+                {riderToPickupKm !== null && (
+                  <span className="shrink-0 rounded-full bg-emerald-50 px-2 py-1 text-xs font-semibold text-emerald-700">
+                    {formatKm(riderToPickupKm)} away
+                  </span>
+                )}
+              </div>
+              <div className="flex items-start justify-between gap-3">
+                <div className="flex items-start gap-3">
+                  <MapPin className="mt-0.5 h-5 w-5 shrink-0 text-brand-accent" />
+                  <div>
+                    <p className="text-sm font-bold text-brand">Drop-off</p>
+                    <p className="text-sm text-slate-600">{topRequest.dropoff}</p>
+                  </div>
+                </div>
+                {routeKm !== null && (
+                  <span className="shrink-0 rounded-full bg-brand-accent/10 px-2 py-1 text-xs font-semibold text-brand-accent">
+                    {formatKm(routeKm)}
+                  </span>
+                )}
+              </div>
+            </div>
+
+            {/* Est time / distance / package stats */}
+            <div className="mt-4 grid grid-cols-3 divide-x divide-slate-100 rounded-xl border border-slate-100 py-3">
+              <div className="flex flex-col items-center gap-1 text-center">
+                <Clock className="h-4 w-4 text-steel" />
+                <p className="text-xs text-steel">Est. time</p>
+                <p className="text-sm font-bold text-brand">{etaMinutes !== null ? `${etaMinutes} min` : "—"}</p>
+              </div>
+              <div className="flex flex-col items-center gap-1 text-center">
+                <MapPin className="h-4 w-4 text-steel" />
+                <p className="text-xs text-steel">Distance</p>
+                <p className="text-sm font-bold text-brand">{routeKm !== null ? formatKm(routeKm) : "—"}</p>
+              </div>
+              <div className="flex flex-col items-center gap-1 text-center">
+                <Package className="h-4 w-4 text-steel" />
+                <p className="text-xs text-steel">Package</p>
+                <p className="text-sm font-bold text-brand">1</p>
+              </div>
+            </div>
+
+            {/* Note */}
             {topRequest.note && (
-              <p className="mt-3 rounded-lg bg-slate-50 px-3 py-2 text-sm text-steel">{topRequest.note}</p>
+              <div className="mt-3 flex items-start gap-2.5 rounded-xl bg-slate-50 px-3.5 py-3">
+                <MessageSquare className="mt-0.5 h-4 w-4 shrink-0 text-steel" />
+                <div>
+                  <p className="text-xs font-bold text-brand">Customer note</p>
+                  <p className="text-sm text-slate-600">{topRequest.note}</p>
+                </div>
+              </div>
             )}
 
+            {/* Accept button */}
             <button
               onClick={() => handleAccept(topRequest._id)}
               disabled={acceptingId === topRequest._id}
-              className="relative mt-4 w-full overflow-hidden rounded-xl bg-brand-accent py-3 text-sm font-bold text-white transition-transform duration-150 active:scale-[0.98] disabled:opacity-60"
+              className="relative mt-4 flex w-full items-center justify-center gap-2 overflow-hidden rounded-2xl bg-sunshine py-4 text-base font-extrabold text-brand transition-transform duration-150 active:scale-[0.98] disabled:opacity-60"
             >
               {acceptingId !== topRequest._id && (
                 <span
@@ -145,10 +279,20 @@ export default function OnlineSearchPage() {
                   style={{ animation: `accept-water-drain ${acceptWindowMs}ms linear forwards` }}
                 />
               )}
-              <span className="relative">
-                {acceptingId === topRequest._id ? "Accepting…" : "Accept delivery"}
+              <span className="relative flex items-center gap-2">
+                {acceptingId === topRequest._id ? (
+                  "Accepting…"
+                ) : (
+                  <>
+                    Accept Order <ArrowRight className="h-5 w-5" />
+                  </>
+                )}
               </span>
             </button>
+
+            {acceptingId !== topRequest._id && (
+              <p className="mt-2 text-center text-xs text-steel">Time to accept: {secondsLeft}s</p>
+            )}
           </div>
         )}
       </div>
