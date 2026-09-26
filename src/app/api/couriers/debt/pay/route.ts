@@ -3,6 +3,7 @@ import { verifyToken, AuthError } from "@/middleware/auth";
 import { connectToDatabase } from "@/lib/mongodb";
 import Courier from "@/models/Courier";
 import DebtPayment from "@/models/DebtPayment";
+import Transaction, { TRANSACTION_TYPE } from "@/models/Transaction";
 import { initializeTransaction } from "@/lib/paystack";
 import crypto from "crypto";
 
@@ -30,8 +31,6 @@ export async function POST(req: NextRequest) {
     }
 
     if (method === "wallet") {
-      // Rider clears debt from their own wallet balance — only allowed
-      // when the wallet fully covers it; no partial/auto-deduction.
       if (courier.walletBalanceKobo < courier.debtKobo) {
         return NextResponse.json(
           { error: "Your wallet balance isn't enough to cover this debt" },
@@ -45,17 +44,30 @@ export async function POST(req: NextRequest) {
       courier.accountSuspended = false;
       await courier.save();
 
-      await DebtPayment.create({
+      const payment = await DebtPayment.create({
         courierUid: uid,
         amountKobo: amount,
         method: "wallet",
         status: "success",
       });
 
+      await Transaction.create({
+        courierUid: uid,
+        type: TRANSACTION_TYPE.DEBT_PAYMENT,
+        amountKobo: amount,
+        walletBalanceAfterKobo: courier.walletBalanceKobo,
+        debtAfterKobo: courier.debtKobo,
+        sourceId: String(payment._id),
+        label: "Debt paid from wallet",
+        status: "completed",
+      });
+
       return NextResponse.json({ ok: true, debtKobo: 0, walletBalanceKobo: courier.walletBalanceKobo });
     }
 
     // Paystack card path — rider pays Crafteey directly for the debt amount.
+    // No Transaction row here yet: written by the webhook once Paystack
+    // actually confirms the payment succeeded.
     if (!email) {
       return NextResponse.json({ error: "No email on file for payment" }, { status: 400 });
     }

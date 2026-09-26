@@ -4,6 +4,7 @@ import { connectToDatabase } from "@/lib/mongodb";
 import CourierRequest from "@/models/CourierRequest";
 import HubOrder from "@/models/HubOrder";
 import Courier from "@/models/Courier";
+import Transaction, { TRANSACTION_TYPE } from "@/models/Transaction";
 import { COURIER_STATUS } from "@/lib/constants";
 
 const NEXT_STATUS: Record<string, string> = {
@@ -12,34 +13,30 @@ const NEXT_STATUS: Record<string, string> = {
   [COURIER_STATUS.EN_ROUTE]: COURIER_STATUS.DELIVERED,
 };
 
-// Rider is suspended once accumulated debt goes strictly ABOVE this —
-// exactly ₦8,000 (800000 kobo) does not trigger suspension, ₦8,000.01+
-// does.
 const DEBT_SUSPENSION_THRESHOLD_KOBO = 800_000;
 
-// Maps a courier-side status transition onto the Hub order status the
-// client actually sees. PICKED_UP and EN_ROUTE both read as
-// "out_for_delivery" to the client — the distinction only matters
-// internally to the courier flow.
 function hubStatusFor(next: string): string | null {
   if (next === COURIER_STATUS.PICKED_UP || next === COURIER_STATUS.EN_ROUTE) return "out_for_delivery";
   if (next === COURIER_STATUS.DELIVERED) return "delivered";
   return null;
 }
 
-// Applies this delivery's earnings to the courier's wallet/debt exactly
-// once. Direct bookings: the rider already collected the full cash fare
-// from the client, so only the platform's cut is recorded — as debt owed
-// back to Crafteey, not a deduction from anything the rider has. Hub
-// orders: the client already paid in-app, so the rider's share is added
-// to their withdrawable wallet balance.
-//
-// Guarded by earningsSettled + an atomic conditional update so a retried
-// or duplicate call can never double-count the same delivery.
+// Short label for the transaction ledger — falls back to a shortened id
+// if orderNumber isn't set on this request (e.g. older documents from
+// before orderNumber existed).
+function transactionLabel(request: { source: string; orderNumber?: string | null; _id: unknown }): string {
+  const idTail = String(request._id).slice(-6).toUpperCase();
+  if (request.source === "hub") {
+    return `Hub delivery #${request.orderNumber || idTail}`;
+  }
+  return `Direct ride #${request.orderNumber || idTail}`;
+}
+
 async function settleEarnings(request: {
   _id: unknown;
   courierUid: string | null;
   source: string;
+  orderNumber?: string | null;
   riderEarningKobo: number | null;
   platformCommissionKobo: number | null;
 }) {
@@ -48,9 +45,11 @@ async function settleEarnings(request: {
   const settleResult = await CourierRequest.findOneAndUpdate(
     { _id: request._id, earningsSettled: { $ne: true } },
     { $set: { earningsSettled: true } },
-    { new: false } // we only care whether the match/update happened
+    { new: false }
   );
-  if (!settleResult) return; // already settled — nothing to do
+  if (!settleResult) return;
+
+  const label = transactionLabel(request);
 
   if (request.source === "direct") {
     const commission = request.platformCommissionKobo ?? 0;
@@ -61,17 +60,43 @@ async function settleEarnings(request: {
       { $inc: { debtKobo: commission } },
       { new: true }
     );
-    if (courier && courier.debtKobo > DEBT_SUSPENSION_THRESHOLD_KOBO && !courier.accountSuspended) {
+    if (!courier) return;
+
+    if (courier.debtKobo > DEBT_SUSPENSION_THRESHOLD_KOBO && !courier.accountSuspended) {
       await Courier.updateOne({ firebaseUid: request.courierUid }, { $set: { accountSuspended: true } });
     }
+
+    await Transaction.create({
+      courierUid: request.courierUid,
+      type: TRANSACTION_TYPE.DIRECT_RIDE_DEBT,
+      amountKobo: commission,
+      walletBalanceAfterKobo: courier.walletBalanceKobo,
+      debtAfterKobo: courier.debtKobo,
+      sourceId: String(request._id),
+      label,
+      status: "completed",
+    });
   } else if (request.source === "hub") {
     const earning = request.riderEarningKobo ?? 0;
     if (earning <= 0) return;
 
-    await Courier.updateOne(
+    const courier = await Courier.findOneAndUpdate(
       { firebaseUid: request.courierUid },
-      { $inc: { walletBalanceKobo: earning, lifetimeEarningsKobo: earning } }
+      { $inc: { walletBalanceKobo: earning, lifetimeEarningsKobo: earning } },
+      { new: true }
     );
+    if (!courier) return;
+
+    await Transaction.create({
+      courierUid: request.courierUid,
+      type: TRANSACTION_TYPE.HUB_EARNING,
+      amountKobo: earning,
+      walletBalanceAfterKobo: courier.walletBalanceKobo,
+      debtAfterKobo: courier.debtKobo,
+      sourceId: String(request._id),
+      label,
+      status: "completed",
+    });
   }
 }
 
@@ -90,10 +115,7 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
 
     const next = NEXT_STATUS[request.status];
     if (!next) {
-      return NextResponse.json(
-        { error: `Can't advance status from "${request.status}"` },
-        { status: 409 }
-      );
+      return NextResponse.json({ error: `Can't advance status from "${request.status}"` }, { status: 409 });
     }
 
     const updated = await CourierRequest.findOneAndUpdate(
@@ -103,10 +125,7 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
     );
 
     if (!updated) {
-      return NextResponse.json(
-        { error: "Status already changed — refresh and try again" },
-        { status: 409 }
-      );
+      return NextResponse.json({ error: "Status already changed — refresh and try again" }, { status: 409 });
     }
 
     if (updated.source === "hub" && updated.hubOrderId) {

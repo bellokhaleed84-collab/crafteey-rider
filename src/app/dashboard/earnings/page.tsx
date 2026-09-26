@@ -1,8 +1,12 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
-import { AlertTriangle, Wallet, TrendingUp, Landmark, Loader2 } from "lucide-react";
+import { AlertTriangle, Wallet, TrendingUp, Landmark, Loader2, Banknote } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
+import { formatNaira, nextWithdrawalDate, formatWithdrawalDate } from "@/lib/format";
+import EarningsChart from "@/components/earnings/EarningsChart";
+import TransactionsList from "@/components/earnings/TransactionsList";
+import BankDetailsForm from "@/components/earnings/BankDetailsForm";
 
 interface CourierDoc {
   debtKobo: number;
@@ -10,23 +14,44 @@ interface CourierDoc {
   lifetimeEarningsKobo: number;
   accountSuspended: boolean;
   paystackRecipientCode?: string;
+  // NOTE: assumed field names for the bank-account box below — rename
+  // here if your Courier schema uses different keys.
+  bankCode?: string;
+  accountNumber?: string;
+  accountName?: string;
+}
+
+interface DailyPoint {
+  date: string;
+  hubEarningKobo: number;
+  directRideCashKobo: number;
+}
+
+interface EarningsSummary {
+  daily: DailyPoint[];
+  thisMonth: {
+    hubEarningKobo: number;
+    directRideCashKobo: number;
+    commissionKobo: number;
+    hubDeliveries: number;
+    directRides: number;
+    totalDeliveries: number;
+  };
 }
 
 const DEBT_SUSPENSION_THRESHOLD_KOBO = 800_000; // ₦8,000 — mirrors debt/pay's route constant
 
-function formatNaira(kobo: number): string {
-  return `₦${Math.round(kobo / 100).toLocaleString()}`;
-}
-
-function isWithdrawalDayToday(): boolean {
-  const day = new Date().getDay();
-  return day === 1 || day === 4; // Monday or Thursday
-}
+const TABS = ["Overview", "Transactions", "Withdrawals", "Debt History", "Earnings Breakdown"] as const;
+type Tab = (typeof TABS)[number];
 
 export default function EarningsPage() {
   const { getIdToken } = useAuth();
 
+  const [tab, setTab] = useState<Tab>("Overview");
+
   const [courier, setCourier] = useState<CourierDoc | null>(null);
+  const [summary, setSummary] = useState<EarningsSummary | null>(null);
+  const [period, setPeriod] = useState<"7days" | "30days" | "all">("30days");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -35,25 +60,54 @@ export default function EarningsPage() {
   const [actionMessage, setActionMessage] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
 
-  const fetchSnapshot = useCallback(async () => {
-    setError(null);
-    try {
-      const token = await getIdToken();
-      const res = await fetch("/api/couriers/me", { headers: { Authorization: `Bearer ${token}` } });
-      const json = await res.json();
-      if (!res.ok) throw new Error(json.error || "Could not load earnings");
-      if (!json.courier) throw new Error("Courier profile not found");
-      setCourier(json.courier);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not load earnings");
-    } finally {
-      setLoading(false);
-    }
+  const fetchCourier = useCallback(async () => {
+    const token = await getIdToken();
+    const res = await fetch("/api/couriers/me", { headers: { Authorization: `Bearer ${token}` } });
+    const json = await res.json();
+    if (!res.ok) throw new Error(json.error || "Could not load earnings");
+    if (!json.courier) throw new Error("Courier profile not found");
+    setCourier(json.courier);
   }, [getIdToken]);
 
+  const fetchSummary = useCallback(
+    async (p: "7days" | "30days" | "all") => {
+      const token = await getIdToken();
+      const res = await fetch(`/api/couriers/earnings-summary?period=${p}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || "Could not load earnings summary");
+      setSummary(json);
+    },
+    [getIdToken]
+  );
+
+  // Initial load.
   useEffect(() => {
-    fetchSnapshot();
-  }, [fetchSnapshot]);
+    setLoading(true);
+    setError(null);
+    Promise.all([fetchCourier(), fetchSummary(period)])
+      .catch((err) => setError(err instanceof Error ? err.message : "Could not load earnings"))
+      .finally(() => setLoading(false));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Re-fetch just the chart/summary when the period toggle changes.
+  useEffect(() => {
+    if (loading) return; // skip on first mount, initial load already covers it
+    fetchSummary(period).catch((err) =>
+      setError(err instanceof Error ? err.message : "Could not load earnings summary")
+    );
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [period]);
+
+  async function refreshCourier() {
+    try {
+      await fetchCourier();
+    } catch {
+      // Non-fatal — the top cards just won't refresh until next load.
+    }
+  }
 
   async function handleWithdraw() {
     setActionError(null);
@@ -70,7 +124,7 @@ export default function EarningsPage() {
       setActionMessage(
         `Withdrawal of ${formatNaira(json.amountKobo)} ${json.status === "paid" ? "completed" : "is processing"}.`
       );
-      await fetchSnapshot();
+      await refreshCourier();
     } catch (err) {
       setActionError(err instanceof Error ? err.message : "Withdrawal failed");
     } finally {
@@ -94,7 +148,7 @@ export default function EarningsPage() {
 
       if (method === "wallet") {
         setActionMessage("Debt cleared from your wallet balance.");
-        await fetchSnapshot();
+        await refreshCourier();
       } else {
         window.location.href = json.authorizationUrl;
       }
@@ -127,102 +181,273 @@ export default function EarningsPage() {
   const hasDebt = courier.debtKobo > 0;
   const canPayFromWallet = courier.walletBalanceKobo >= courier.debtKobo && courier.debtKobo > 0;
   const hasBankDetails = Boolean(courier.paystackRecipientCode);
-  const withdrawalDay = isWithdrawalDayToday();
-  const canWithdraw = courier.walletBalanceKobo > 0 && withdrawalDay && hasBankDetails && !courier.accountSuspended;
+  const debtProgressPct = Math.min((courier.debtKobo / DEBT_SUSPENSION_THRESHOLD_KOBO) * 100, 100);
+  const nextWithdrawal = nextWithdrawalDate();
 
   return (
     <div className="space-y-4">
       <h1 className="text-lg font-bold text-brand">Earnings</h1>
 
-      {courier.accountSuspended && (
-        <div className="flex items-start gap-3 rounded-2xl border border-red-200 bg-red-50 p-4">
-          <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-red-600" />
-          <div>
-            <p className="text-sm font-bold text-red-700">Account suspended</p>
-            <p className="mt-0.5 text-xs text-red-600">
-              Your debt is above {formatNaira(DEBT_SUSPENSION_THRESHOLD_KOBO)}. Pay it off below to go back online.
-            </p>
-          </div>
-        </div>
-      )}
-
-      {/* Wallet balance */}
-      <div className="rounded-2xl border border-slate-200 bg-white p-5">
-        <div className="flex items-center gap-2">
-          <Wallet className="h-5 w-5 text-emerald-600" />
-          <p className="text-sm font-bold text-brand">Wallet balance</p>
-        </div>
-        <p className="mt-2 text-3xl font-extrabold text-brand">{formatNaira(courier.walletBalanceKobo)}</p>
-        <p className="mt-1 text-xs text-steel">From Hub deliveries — paid out Mondays &amp; Thursdays.</p>
-
-        {!hasBankDetails && (
-          <p className="mt-3 text-xs font-semibold text-amber-600">Add your bank details to enable withdrawals.</p>
-        )}
-        {hasBankDetails && !withdrawalDay && (
-          <p className="mt-3 text-xs text-steel">Withdrawals open again on the next Monday or Thursday.</p>
-        )}
-
-        <button
-          onClick={handleWithdraw}
-          disabled={!canWithdraw || withdrawing}
-          className="mt-4 w-full rounded-xl bg-brand py-3 text-sm font-semibold text-white disabled:opacity-40"
-        >
-          {withdrawing ? "Withdrawing…" : "Withdraw"}
-        </button>
+      {/* Tab bar */}
+      <div className="flex gap-1 overflow-x-auto border-b border-slate-200 pb-px">
+        {TABS.map((t) => (
+          <button
+            key={t}
+            onClick={() => setTab(t)}
+            className={`shrink-0 whitespace-nowrap border-b-2 px-3 py-2 text-xs font-semibold ${
+              tab === t ? "border-brand text-brand" : "border-transparent text-steel"
+            }`}
+          >
+            {t}
+          </button>
+        ))}
       </div>
 
-      {/* Debt */}
-      {hasDebt && (
-        <div className="rounded-2xl border border-amber-200 bg-amber-50 p-5">
-          <div className="flex items-center gap-2">
-            <Landmark className="h-5 w-5 text-amber-700" />
-            <p className="text-sm font-bold text-amber-800">Outstanding debt</p>
-          </div>
-          <p className="mt-2 text-2xl font-extrabold text-amber-800">{formatNaira(courier.debtKobo)}</p>
-          <p className="mt-1 text-xs text-amber-700">
-            From direct-booking commissions. Pay this off to keep accepting work.
-          </p>
+      {tab === "Overview" && (
+        <div className="space-y-4">
+          {courier.accountSuspended && (
+            <div className="flex items-start gap-3 rounded-2xl border border-red-200 bg-red-50 p-4">
+              <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-red-600" />
+              <div>
+                <p className="text-sm font-bold text-red-700">Account suspended</p>
+                <p className="mt-0.5 text-xs text-red-600">
+                  Your debt is above {formatNaira(DEBT_SUSPENSION_THRESHOLD_KOBO)}. Pay it off below to go back online.
+                </p>
+              </div>
+            </div>
+          )}
 
-          <div className="mt-4 flex gap-2">
-            <button
-              onClick={() => handlePayDebt("wallet")}
-              disabled={!canPayFromWallet || payingDebt !== null}
-              className="flex-1 rounded-xl border border-amber-300 bg-white py-2.5 text-xs font-semibold text-amber-800 disabled:opacity-40"
-            >
-              {payingDebt === "wallet" ? "Paying…" : "Pay from wallet"}
-            </button>
-            <button
-              onClick={() => handlePayDebt("paystack")}
-              disabled={payingDebt !== null}
-              className="flex-1 rounded-xl bg-amber-600 py-2.5 text-xs font-semibold text-white disabled:opacity-40"
-            >
-              {payingDebt === "paystack" ? "Redirecting…" : "Pay with card"}
+          {/* 4 stat cards */}
+          <div className="grid grid-cols-2 gap-3">
+            <div className="rounded-2xl border border-slate-200 bg-white p-4">
+              <div className="flex items-center gap-1.5">
+                <Wallet className="h-4 w-4 text-emerald-600" />
+                <p className="text-xs font-semibold text-steel">Wallet</p>
+              </div>
+              <p className="mt-1.5 text-xl font-extrabold text-brand">{formatNaira(courier.walletBalanceKobo)}</p>
+            </div>
+
+            <div className="rounded-2xl border border-slate-200 bg-white p-4">
+              <div className="flex items-center gap-1.5">
+                <Landmark className="h-4 w-4 text-amber-600" />
+                <p className="text-xs font-semibold text-steel">Debt</p>
+              </div>
+              <p className="mt-1.5 text-xl font-extrabold text-brand">{formatNaira(courier.debtKobo)}</p>
+              <div className="mt-2 h-1.5 w-full overflow-hidden rounded-full bg-slate-100">
+                <div
+                  className={`h-full rounded-full ${debtProgressPct >= 100 ? "bg-red-500" : "bg-amber-400"}`}
+                  style={{ width: `${debtProgressPct}%` }}
+                />
+              </div>
+              <p className="mt-1 text-[10px] text-steel">
+                {formatNaira(DEBT_SUSPENSION_THRESHOLD_KOBO)} suspension limit
+              </p>
+            </div>
+
+            <div className="rounded-2xl border border-slate-200 bg-white p-4">
+              <div className="flex items-center gap-1.5">
+                <TrendingUp className="h-4 w-4 text-brand-accent" />
+                <p className="text-xs font-semibold text-steel">Lifetime</p>
+              </div>
+              <p className="mt-1.5 text-xl font-extrabold text-brand">{formatNaira(courier.lifetimeEarningsKobo)}</p>
+            </div>
+
+            <div className="rounded-2xl border border-slate-200 bg-white p-4">
+              <div className="flex items-center gap-1.5">
+                <Banknote className="h-4 w-4 text-brand" />
+                <p className="text-xs font-semibold text-steel">Status</p>
+              </div>
+              <p
+                className={`mt-1.5 text-sm font-extrabold ${
+                  courier.accountSuspended ? "text-red-600" : "text-emerald-600"
+                }`}
+              >
+                {courier.accountSuspended ? "Suspended" : "Active"}
+              </p>
+            </div>
+          </div>
+
+          {/* Chart */}
+          <div className="rounded-2xl border border-slate-200 bg-white p-4">
+            <div className="flex items-center justify-between">
+              <p className="text-sm font-bold text-brand">Earnings over time</p>
+              <div className="flex gap-1 rounded-lg bg-slate-100 p-0.5">
+                {(["7days", "30days", "all"] as const).map((p) => (
+                  <button
+                    key={p}
+                    onClick={() => setPeriod(p)}
+                    className={`rounded-md px-2 py-1 text-[10px] font-semibold ${
+                      period === p ? "bg-white text-brand shadow-sm" : "text-steel"
+                    }`}
+                  >
+                    {p === "7days" ? "7d" : p === "30days" ? "30d" : "All"}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div className="mt-3">
+              {summary ? (
+                <EarningsChart data={summary.daily} />
+              ) : (
+                <Loader2 className="mx-auto h-4 w-4 animate-spin text-steel" />
+              )}
+            </div>
+          </div>
+
+          {/* This month summary */}
+          {summary && (
+            <div className="rounded-2xl border border-slate-200 bg-white p-4">
+              <p className="text-sm font-bold text-brand">This month</p>
+              <div className="mt-3 grid grid-cols-2 gap-3 text-xs">
+                <div>
+                  <p className="text-steel">Hub earnings</p>
+                  <p className="font-bold text-brand">{formatNaira(summary.thisMonth.hubEarningKobo)}</p>
+                </div>
+                <div>
+                  <p className="text-steel">Direct-ride cash</p>
+                  <p className="font-bold text-brand">{formatNaira(summary.thisMonth.directRideCashKobo)}</p>
+                </div>
+                <div>
+                  <p className="text-steel">Platform commission</p>
+                  <p className="font-bold text-brand">{formatNaira(summary.thisMonth.commissionKobo)}</p>
+                </div>
+                <div>
+                  <p className="text-steel">Deliveries</p>
+                  <p className="font-bold text-brand">
+                    {summary.thisMonth.totalDeliveries}{" "}
+                    <span className="font-normal text-steel">
+                      ({summary.thisMonth.hubDeliveries} hub · {summary.thisMonth.directRides} direct)
+                    </span>
+                  </p>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Next withdrawal + bank account */}
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <div className="rounded-2xl border border-slate-200 bg-white p-4">
+              <p className="text-xs font-semibold text-steel">Next withdrawal</p>
+              <p className="mt-1 text-sm font-bold text-brand">{formatWithdrawalDate(nextWithdrawal)}</p>
+              <p className="mt-1 text-[11px] text-steel">Payouts run every Monday &amp; Thursday.</p>
+              <button
+                onClick={handleWithdraw}
+                disabled={!hasBankDetails || courier.walletBalanceKobo <= 0 || courier.accountSuspended || withdrawing}
+                className="mt-3 w-full rounded-xl bg-brand py-2.5 text-xs font-semibold text-white disabled:opacity-40"
+              >
+                {withdrawing ? "Withdrawing…" : "Withdraw now"}
+              </button>
+            </div>
+
+            <div className="rounded-2xl border border-slate-200 bg-white p-4">
+              <p className="mb-2 text-xs font-semibold text-steel">Bank account</p>
+              <BankDetailsForm onSaved={refreshCourier} />
+            </div>
+          </div>
+
+          {/* Debt payment */}
+          {hasDebt && (
+            <div className="rounded-2xl border border-amber-200 bg-amber-50 p-5">
+              <div className="flex items-center gap-2">
+                <Landmark className="h-5 w-5 text-amber-700" />
+                <p className="text-sm font-bold text-amber-800">Pay off your debt</p>
+              </div>
+              <p className="mt-1 text-xs text-amber-700">
+                From direct-booking commissions. Pay this off to keep accepting work.
+              </p>
+              <div className="mt-4 flex gap-2">
+                <button
+                  onClick={() => handlePayDebt("wallet")}
+                  disabled={!canPayFromWallet || payingDebt !== null}
+                  className="flex-1 rounded-xl border border-amber-300 bg-white py-2.5 text-xs font-semibold text-amber-800 disabled:opacity-40"
+                >
+                  {payingDebt === "wallet" ? "Paying…" : "Pay from wallet"}
+                </button>
+                <button
+                  onClick={() => handlePayDebt("paystack")}
+                  disabled={payingDebt !== null}
+                  className="flex-1 rounded-xl bg-amber-600 py-2.5 text-xs font-semibold text-white disabled:opacity-40"
+                >
+                  {payingDebt === "paystack" ? "Redirecting…" : "Pay with card"}
+                </button>
+              </div>
+              {!canPayFromWallet && courier.walletBalanceKobo > 0 && (
+                <p className="mt-2 text-[11px] text-amber-700">Wallet balance isn't enough to cover this debt yet.</p>
+              )}
+            </div>
+          )}
+
+          {/* About your earnings */}
+          <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+            <p className="text-xs font-bold text-brand">About your earnings</p>
+            <ul className="mt-2 space-y-1.5 text-[11px] text-steel">
+              <li>
+                <span className="font-semibold text-emerald-600">Hub deliveries</span> — the client pays in-app; your 80%
+                share goes to your wallet and pays out on the next Monday or Thursday.
+              </li>
+              <li>
+                <span className="font-semibold text-amber-600">Direct rides</span> — the client pays you the full fare in
+                cash; the platform's 20% commission is added to your debt instead of being deducted upfront.
+              </li>
+            </ul>
+          </div>
+
+          {/* Recent transactions */}
+          <div className="rounded-2xl border border-slate-200 bg-white p-4">
+            <p className="text-sm font-bold text-brand">Recent transactions</p>
+            <div className="mt-2">
+              <TransactionsList limit={5} />
+            </div>
+            <button onClick={() => setTab("Transactions")} className="mt-2 text-xs font-semibold text-brand-accent">
+              View all
             </button>
           </div>
-          {!canPayFromWallet && courier.walletBalanceKobo > 0 && (
-            <p className="mt-2 text-[11px] text-amber-700">Wallet balance isn't enough to cover this debt yet.</p>
+
+          {(actionMessage || actionError) && (
+            <p
+              className={`rounded-2xl p-4 text-center text-xs ${
+                actionError ? "bg-red-50 text-red-600" : "bg-emerald-50 text-emerald-700"
+              }`}
+            >
+              {actionError || actionMessage}
+            </p>
           )}
         </div>
       )}
 
-      {/* Lifetime earnings */}
-      <div className="rounded-2xl border border-slate-200 bg-white p-5">
-        <div className="flex items-center gap-2">
-          <TrendingUp className="h-5 w-5 text-brand-accent" />
-          <p className="text-sm font-bold text-brand">Lifetime earnings</p>
+      {tab === "Transactions" && (
+        <div className="rounded-2xl border border-slate-200 bg-white p-4">
+          <TransactionsList />
         </div>
-        <p className="mt-2 text-2xl font-extrabold text-brand">{formatNaira(courier.lifetimeEarningsKobo)}</p>
-        <p className="mt-1 text-xs text-steel">Total earned from Hub deliveries, all-time.</p>
-      </div>
+      )}
 
-      {(actionMessage || actionError) && (
-        <p
-          className={`rounded-2xl p-4 text-center text-xs ${
-            actionError ? "bg-red-50 text-red-600" : "bg-emerald-50 text-emerald-700"
-          }`}
-        >
-          {actionError || actionMessage}
-        </p>
+      {tab === "Withdrawals" && (
+        <div className="rounded-2xl border border-slate-200 bg-white p-4">
+          <TransactionsList type="withdrawal" emptyMessage="No withdrawals yet." />
+        </div>
+      )}
+
+      {tab === "Debt History" && (
+        <div className="rounded-2xl border border-slate-200 bg-white p-4">
+          <TransactionsList type="debt_payment" emptyMessage="No debt payments yet." />
+        </div>
+      )}
+
+      {tab === "Earnings Breakdown" && (
+        // The Transaction schema has no combined "earnings" type, so this
+        // renders as two separate lists rather than one merged, paginated
+        // feed. Fine for now — worth revisiting if riders want a single
+        // chronological view here.
+        <div className="space-y-4">
+          <div className="rounded-2xl border border-slate-200 bg-white p-4">
+            <p className="mb-2 text-xs font-bold text-emerald-600">Hub earnings</p>
+            <TransactionsList type="hub_earning" emptyMessage="No hub earnings yet." />
+          </div>
+          <div className="rounded-2xl border border-slate-200 bg-white p-4">
+            <p className="mb-2 text-xs font-bold text-amber-600">Direct-ride debt</p>
+            <TransactionsList type="direct_ride_debt" emptyMessage="No direct-ride debt yet." />
+          </div>
+        </div>
       )}
     </div>
   );
