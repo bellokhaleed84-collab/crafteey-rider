@@ -22,11 +22,14 @@ const CourierRequestSchema = new Schema(
 
     note: { type: String, default: "" },
 
-    // New — distinguishes a Hub-order-triggered request from a direct
-    // Rides booking, and carries what a Hub pickup needs that a direct
-    // booking doesn't.
+    // Rider payout for this delivery, in kobo. Set at creation time for
+    // both direct bookings and Hub orders so the rider sees it before
+    // accepting — not calculated after the fact.
+    riderEarningKobo: { type: Number, default: null },
+
     source: { type: String, enum: ["direct", "hub"], default: "direct", index: true },
     hubOrderId: { type: String, default: null, index: true },
+    orderNumber: { type: String, default: null },
     vendorName: { type: String, default: "" },
     pickupCode: { type: String, default: null },
 

@@ -20,6 +20,9 @@ export interface QueueRequest {
   note: string;
   createdAt: string;
   vehicleType: string;
+  riderEarningKobo?: number | null;
+  orderNumber?: string | null;
+  vendorName?: string;
 }
 
 const ACCEPT_WINDOW_MS = 8000;

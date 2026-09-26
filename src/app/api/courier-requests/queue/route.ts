@@ -18,6 +18,11 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: "Courier not found" }, { status: 404 });
     }
 
+    if (!courier.vehicleType) {
+      console.error(`Courier ${decoded.uid} has no vehicleType set`);
+      return NextResponse.json({ requests: [] });
+    }
+
     const requests = await CourierRequest.find({
       status: COURIER_STATUS.PENDING,
       courierUid: null,
