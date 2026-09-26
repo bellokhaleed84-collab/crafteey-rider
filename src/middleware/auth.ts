@@ -13,7 +13,7 @@ export class AuthError extends Error {
 // Matches the same verifyToken/AuthError convention crafteey-client's
 // courier-requests routes use, so status codes and error shapes line up
 // on both sides of the same workflow.
-export async function verifyToken(req: NextRequest): Promise<{ uid: string }> {
+export async function verifyToken(req: NextRequest): Promise<{ uid: string; email: string | null }> {
   const authHeader = req.headers.get("authorization");
   if (!authHeader?.startsWith("Bearer ")) {
     throw new AuthError("Missing or invalid Authorization header", 401);
@@ -23,7 +23,7 @@ export async function verifyToken(req: NextRequest): Promise<{ uid: string }> {
 
   try {
     const decoded = await getAuth(adminApp).verifyIdToken(token);
-    return { uid: decoded.uid };
+    return { uid: decoded.uid, email: decoded.email ?? null };
   } catch {
     throw new AuthError("Invalid or expired token", 401);
   }

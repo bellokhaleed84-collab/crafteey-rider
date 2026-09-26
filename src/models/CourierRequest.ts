@@ -22,10 +22,16 @@ const CourierRequestSchema = new Schema(
 
     note: { type: String, default: "" },
 
-    // Rider payout for this delivery, in kobo. Set at creation time for
-    // both direct bookings and Hub orders so the rider sees it before
-    // accepting — not calculated after the fact.
+    // Rider payout for this delivery, in kobo.
     riderEarningKobo: { type: Number, default: null },
+    // Platform's 20% cut — for direct bookings this becomes debt on
+    // delivery; for Hub orders it's informational (platform already
+    // deducted it from the order total at checkout).
+    platformCommissionKobo: { type: Number, default: null },
+    // Set true once this request's earnings have been applied to the
+    // courier's wallet/debt on delivery — guards against double-counting
+    // if the delivery-complete transition were ever triggered twice.
+    earningsSettled: { type: Boolean, default: false },
 
     source: { type: String, enum: ["direct", "hub"], default: "direct", index: true },
     hubOrderId: { type: String, default: null, index: true },

@@ -18,6 +18,20 @@ export async function PATCH(req: NextRequest) {
       return NextResponse.json({ error: "isOnline must be a boolean" }, { status: 400 });
     }
 
+    // Going offline is always allowed. Going online is blocked while
+    // suspended for debt — this never touches a delivery already in
+    // progress, since a suspended rider can't have picked up a new one
+    // in the first place (they couldn't go online to get it).
+    if (isOnline) {
+      const existing = await Courier.findOne({ firebaseUid: uid }).select("accountSuspended").lean();
+      if (existing?.accountSuspended) {
+        return NextResponse.json(
+          { error: "Your account is suspended due to outstanding debt. Pay it off to resume." },
+          { status: 403 }
+        );
+      }
+    }
+
     const update: Record<string, unknown> = { isOnline };
     if (isOnline && location && typeof location.lat === "number" && typeof location.lng === "number") {
       update.currentLocation = location;
