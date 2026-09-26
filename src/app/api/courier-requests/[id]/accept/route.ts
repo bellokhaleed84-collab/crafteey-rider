@@ -3,6 +3,7 @@ import { verifyToken, AuthError } from "@/middleware/auth";
 import { connectToDatabase } from "@/lib/mongodb";
 import CourierRequest from "@/models/CourierRequest";
 import Courier from "@/models/Courier";
+import HubOrder from "@/models/HubOrder";
 import { COURIER_STATUS } from "@/lib/constants";
 
 const ACTIVE_STATUSES: string[] = [
@@ -21,8 +22,6 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
       return NextResponse.json({ error: "Courier profile not found" }, { status: 404 });
     }
 
-    // One active job at a time — enforced here server-side, not just by
-    // the dashboard redirecting when it notices an active request.
     const alreadyActive = await CourierRequest.findOne({
       courierUid: uid,
       status: { $in: ACTIVE_STATUSES },
@@ -34,11 +33,6 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
       );
     }
 
-    // Atomic accept: the filter requires status still PENDING and
-    // courierUid still null at the moment of the update, so if two
-    // couriers hit Accept on the same request within milliseconds of each
-    // other, only the first update actually matches and wins — the
-    // second gets back null, not a corrupted double-assigned request.
     const request = await CourierRequest.findOneAndUpdate(
       { _id: params.id, status: COURIER_STATUS.PENDING, courierUid: null },
       {
@@ -56,6 +50,16 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
       return NextResponse.json(
         { error: "This request was just taken by another courier" },
         { status: 409 }
+      );
+    }
+
+    // Keep the client's Hub order-tracking page in sync — a rider being
+    // assigned means the order can now show as "preparing" (rider is
+    // heading to the vendor). Fire-and-forget-ish: logged, not thrown,
+    // so a sync failure never blocks the courier from accepting.
+    if (request.source === "hub" && request.hubOrderId) {
+      HubOrder.updateOne({ _id: request.hubOrderId }, { $set: { status: "preparing" } }).catch((e) =>
+        console.error("[rider] failed to sync hub order status on accept", e)
       );
     }
 
