@@ -104,7 +104,7 @@ export default function OnlineSearchPage() {
 
   return (
     <div className="flex h-[100dvh] flex-col">
-      <div className="relative h-[36vh] shrink-0">
+      <div className="relative flex-1">
         <MapOrFallback courierLocation={location} className="h-full w-full" />
 
         <div className="absolute inset-x-0 top-0 flex items-center justify-between p-4">
@@ -142,7 +142,7 @@ export default function OnlineSearchPage() {
         </p>
       )}
 
-      <div className="flex flex-1 flex-col justify-end overflow-y-auto">
+      <div className="shrink-0">
         {!topRequest ? (
           <div className="rounded-t-3xl border-t border-slate-200 bg-white px-5 pb-8 pt-6 shadow-[0_-8px_24px_rgba(0,0,0,0.12)]">
             <div className="mx-auto mb-5 h-1.5 w-10 rounded-full bg-slate-200" />
