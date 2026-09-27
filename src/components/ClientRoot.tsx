@@ -6,7 +6,7 @@ import { useAuth } from "@/contexts/AuthContext";
 
 export default function ClientRoot({ children }: { children: React.ReactNode }) {
   const [showSplash, setShowSplash] = useState(true);
-  const { loading: authLoading } = useAuth(); // <-- tell me if this field is named differently
+  const { loading: authLoading } = useAuth();
 
   return (
     <>
