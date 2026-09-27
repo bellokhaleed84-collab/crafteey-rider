@@ -83,7 +83,7 @@ export default function VehicleSection() {
           <input
             value={plate}
             onChange={(e) => setPlate(e.target.value)}
-            className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm text-brand"
+            className="mt-1 w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-brand"
           />
         </div>
         <div>
@@ -91,7 +91,7 @@ export default function VehicleSection() {
           <input
             value={idNumber}
             onChange={(e) => setIdNumber(e.target.value)}
-            className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm text-brand"
+            className="mt-1 w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-brand"
           />
         </div>
 

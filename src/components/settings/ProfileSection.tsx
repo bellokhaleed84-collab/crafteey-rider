@@ -68,7 +68,7 @@ export default function ProfileSection() {
           <input
             value={name}
             onChange={(e) => setName(e.target.value)}
-            className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm text-brand"
+            className="mt-1 w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-brand"
           />
         </div>
         <div>
@@ -76,7 +76,7 @@ export default function ProfileSection() {
           <input
             value={phone}
             onChange={(e) => setPhone(e.target.value)}
-            className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm text-brand"
+            className="mt-1 w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-brand"
           />
         </div>
 
