@@ -58,7 +58,7 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
 
   if (loading || checking) {
     return (
-      <div className="flex min-h-screen items-center justify-center">
+      <div className="flex min-h-screen items-center justify-center bg-concrete">
         <p className="text-sm text-steel">Loading…</p>
       </div>
     );
