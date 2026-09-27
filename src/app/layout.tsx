@@ -14,9 +14,26 @@ export const metadata: Metadata = {
   description: "Accept and manage delivery requests as a Crafteey courier.",
 };
 
+// Runs before paint, before React hydrates — avoids a light-mode flash on
+// load for anyone who's chosen dark or whose system is set to dark.
+// Mirrors the exact key/logic AppearanceSection.tsx uses on toggle.
+const THEME_INIT_SCRIPT = `
+(function() {
+  try {
+    var saved = localStorage.getItem("crafteey_rider_theme");
+    var prefersDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
+    var dark = saved === "dark" || (saved !== "light" && prefersDark);
+    if (dark) document.documentElement.classList.add("dark");
+  } catch (e) {}
+})();
+`;
+
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en">
+      <head>
+        <script dangerouslySetInnerHTML={{ __html: THEME_INIT_SCRIPT }} />
+      </head>
       <body className={`${spaceGrotesk.variable} ${inter.variable} font-body`}>
         <AuthProvider>{children}</AuthProvider>
       </body>
