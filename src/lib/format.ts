@@ -1,5 +1,9 @@
 export function formatNaira(kobo: number): string {
-  return `₦${Math.round(kobo / 100).toLocaleString()}`;
+  // Guards against undefined/NaN from older records that predate a field
+  // being added to the schema (Mongoose only backfills defaults on new
+  // documents, not existing ones) — shows ₦0 instead of ₦NaN.
+  const safeKobo = Number.isFinite(kobo) ? kobo : 0;
+  return `₦${Math.round(safeKobo / 100).toLocaleString()}`;
 }
 
 export function formatTransactionDate(iso: string): string {

@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState, type FormEvent } from "react";
 import { Loader2 } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 
@@ -63,7 +63,7 @@ export default function BankDetailsForm({ onSaved }: { onSaved?: () => void }) {
       .finally(() => setDetailsLoading(false));
   }, [getIdToken, loadDetails]);
 
-  async function handleSubmit(e: React.FormEvent) {
+  async function handleSubmit(e: FormEvent) {
     e.preventDefault();
     setError(null);
     setResolvedName(null);

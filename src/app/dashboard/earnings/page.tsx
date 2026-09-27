@@ -1,11 +1,10 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
-import { AlertTriangle, Wallet, TrendingUp, Landmark, Loader2, Banknote } from "lucide-react";
+import { AlertTriangle, Wallet, TrendingUp, Landmark, Loader2 } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { formatNaira, nextWithdrawalDate, formatWithdrawalDate } from "@/lib/format";
 import EarningsChart from "@/components/earnings/EarningsChart";
-import TransactionsList from "@/components/earnings/TransactionsList";
 import BankDetailsForm from "@/components/earnings/BankDetailsForm";
 
 interface CourierDoc {
@@ -41,13 +40,8 @@ interface EarningsSummary {
 
 const DEBT_SUSPENSION_THRESHOLD_KOBO = 800_000; // ₦8,000 — mirrors debt/pay's route constant
 
-const TABS = ["Overview", "Transactions", "Withdrawals", "Debt History", "Earnings Breakdown"] as const;
-type Tab = (typeof TABS)[number];
-
 export default function EarningsPage() {
   const { getIdToken } = useAuth();
-
-  const [tab, setTab] = useState<Tab>("Overview");
 
   const [courier, setCourier] = useState<CourierDoc | null>(null);
   const [summary, setSummary] = useState<EarningsSummary | null>(null);
@@ -178,34 +172,22 @@ export default function EarningsPage() {
     );
   }
 
-  const hasDebt = courier.debtKobo > 0;
-  const canPayFromWallet = courier.walletBalanceKobo >= courier.debtKobo && courier.debtKobo > 0;
+  // Defensive against older Courier documents that predate this field
+  // existing in the schema — Mongoose defaults only apply to new
+  // documents, so a legacy record can come back with debtKobo undefined.
+  const debtKobo = Number.isFinite(courier.debtKobo) ? courier.debtKobo : 0;
+  const hasDebt = debtKobo > 0;
+  const canPayFromWallet = courier.walletBalanceKobo >= debtKobo && debtKobo > 0;
   const hasBankDetails = Boolean(courier.paystackRecipientCode);
-  const debtProgressPct = Math.min((courier.debtKobo / DEBT_SUSPENSION_THRESHOLD_KOBO) * 100, 100);
+  const debtProgressPct = Math.min((debtKobo / DEBT_SUSPENSION_THRESHOLD_KOBO) * 100, 100);
   const nextWithdrawal = nextWithdrawalDate();
 
   return (
     <div className="space-y-4">
       <h1 className="text-lg font-bold text-brand">Earnings</h1>
 
-      {/* Tab bar */}
-      <div className="flex gap-1 overflow-x-auto border-b border-slate-200 pb-px">
-        {TABS.map((t) => (
-          <button
-            key={t}
-            onClick={() => setTab(t)}
-            className={`shrink-0 whitespace-nowrap border-b-2 px-3 py-2 text-xs font-semibold ${
-              tab === t ? "border-brand text-brand" : "border-transparent text-steel"
-            }`}
-          >
-            {t}
-          </button>
-        ))}
-      </div>
-
-      {tab === "Overview" && (
-        <div className="space-y-4">
-          {courier.accountSuspended && (
+      <div className="space-y-4">
+        {courier.accountSuspended && (
             <div className="flex items-start gap-3 rounded-2xl border border-red-200 bg-red-50 p-4">
               <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-red-600" />
               <div>
@@ -217,7 +199,7 @@ export default function EarningsPage() {
             </div>
           )}
 
-          {/* 4 stat cards */}
+          {/* Stat cards */}
           <div className="grid grid-cols-2 gap-3">
             <div className="rounded-2xl border border-slate-200 bg-white p-4">
               <div className="flex items-center gap-1.5">
@@ -232,7 +214,7 @@ export default function EarningsPage() {
                 <Landmark className="h-4 w-4 text-amber-600" />
                 <p className="text-xs font-semibold text-steel">Debt</p>
               </div>
-              <p className="mt-1.5 text-xl font-extrabold text-brand">{formatNaira(courier.debtKobo)}</p>
+              <p className="mt-1.5 text-xl font-extrabold text-brand">{formatNaira(debtKobo)}</p>
               <div className="mt-2 h-1.5 w-full overflow-hidden rounded-full bg-slate-100">
                 <div
                   className={`h-full rounded-full ${debtProgressPct >= 100 ? "bg-red-500" : "bg-amber-400"}`}
@@ -244,26 +226,12 @@ export default function EarningsPage() {
               </p>
             </div>
 
-            <div className="rounded-2xl border border-slate-200 bg-white p-4">
+            <div className="col-span-2 rounded-2xl border border-slate-200 bg-white p-4">
               <div className="flex items-center gap-1.5">
                 <TrendingUp className="h-4 w-4 text-brand-accent" />
-                <p className="text-xs font-semibold text-steel">Lifetime</p>
+                <p className="text-xs font-semibold text-steel">Lifetime earnings</p>
               </div>
               <p className="mt-1.5 text-xl font-extrabold text-brand">{formatNaira(courier.lifetimeEarningsKobo)}</p>
-            </div>
-
-            <div className="rounded-2xl border border-slate-200 bg-white p-4">
-              <div className="flex items-center gap-1.5">
-                <Banknote className="h-4 w-4 text-brand" />
-                <p className="text-xs font-semibold text-steel">Status</p>
-              </div>
-              <p
-                className={`mt-1.5 text-sm font-extrabold ${
-                  courier.accountSuspended ? "text-red-600" : "text-emerald-600"
-                }`}
-              >
-                {courier.accountSuspended ? "Suspended" : "Active"}
-              </p>
             </div>
           </div>
 
@@ -377,32 +345,6 @@ export default function EarningsPage() {
             </div>
           )}
 
-          {/* About your earnings */}
-          <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
-            <p className="text-xs font-bold text-brand">About your earnings</p>
-            <ul className="mt-2 space-y-1.5 text-[11px] text-steel">
-              <li>
-                <span className="font-semibold text-emerald-600">Hub deliveries</span> — the client pays in-app; your 80%
-                share goes to your wallet and pays out on the next Monday or Thursday.
-              </li>
-              <li>
-                <span className="font-semibold text-amber-600">Direct rides</span> — the client pays you the full fare in
-                cash; the platform's 20% commission is added to your debt instead of being deducted upfront.
-              </li>
-            </ul>
-          </div>
-
-          {/* Recent transactions */}
-          <div className="rounded-2xl border border-slate-200 bg-white p-4">
-            <p className="text-sm font-bold text-brand">Recent transactions</p>
-            <div className="mt-2">
-              <TransactionsList limit={5} />
-            </div>
-            <button onClick={() => setTab("Transactions")} className="mt-2 text-xs font-semibold text-brand-accent">
-              View all
-            </button>
-          </div>
-
           {(actionMessage || actionError) && (
             <p
               className={`rounded-2xl p-4 text-center text-xs ${
@@ -412,43 +354,7 @@ export default function EarningsPage() {
               {actionError || actionMessage}
             </p>
           )}
-        </div>
-      )}
-
-      {tab === "Transactions" && (
-        <div className="rounded-2xl border border-slate-200 bg-white p-4">
-          <TransactionsList />
-        </div>
-      )}
-
-      {tab === "Withdrawals" && (
-        <div className="rounded-2xl border border-slate-200 bg-white p-4">
-          <TransactionsList type="withdrawal" emptyMessage="No withdrawals yet." />
-        </div>
-      )}
-
-      {tab === "Debt History" && (
-        <div className="rounded-2xl border border-slate-200 bg-white p-4">
-          <TransactionsList type="debt_payment" emptyMessage="No debt payments yet." />
-        </div>
-      )}
-
-      {tab === "Earnings Breakdown" && (
-        // The Transaction schema has no combined "earnings" type, so this
-        // renders as two separate lists rather than one merged, paginated
-        // feed. Fine for now — worth revisiting if riders want a single
-        // chronological view here.
-        <div className="space-y-4">
-          <div className="rounded-2xl border border-slate-200 bg-white p-4">
-            <p className="mb-2 text-xs font-bold text-emerald-600">Hub earnings</p>
-            <TransactionsList type="hub_earning" emptyMessage="No hub earnings yet." />
-          </div>
-          <div className="rounded-2xl border border-slate-200 bg-white p-4">
-            <p className="mb-2 text-xs font-bold text-amber-600">Direct-ride debt</p>
-            <TransactionsList type="direct_ride_debt" emptyMessage="No direct-ride debt yet." />
-          </div>
-        </div>
-      )}
+      </div>
     </div>
   );
 }
