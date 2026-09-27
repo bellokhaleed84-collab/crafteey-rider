@@ -18,7 +18,7 @@ interface SplashScreenProps {
 // is a quick crossfade, not a lingering one. Set to 0 for a hard cut.
 const EXIT_MS = 200;
 
-export default function SplashScreen({ onFinished, introMs = 10000, ready = true }: SplashScreenProps) {
+export default function SplashScreen({ onFinished, introMs = 6000, ready = true }: SplashScreenProps) {
   const [introDone, setIntroDone] = useState(false);
   const [exiting, setExiting] = useState(false);
 
@@ -46,6 +46,7 @@ export default function SplashScreen({ onFinished, introMs = 10000, ready = true
               top: `${s.top}%`,
               left: `${s.left}%`,
               width: s.size,
+              height: s.size,
               color: COLORS[s.color],
               animationDelay: `${s.delay}s`,
               transform: `rotate(${s.rotate ?? 0}deg)`,
