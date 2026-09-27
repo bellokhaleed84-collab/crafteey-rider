@@ -7,6 +7,59 @@ body {
   height: 100%;
 }
 
+/* Dark mode — global overrides so existing components don't need
+   dark: classes added one by one. Targets the utility classes already
+   used consistently across the app. If a specific element ever needs
+   to behave differently, add a dark: override directly on that
+   element — it'll win over these since it's more specific. */
+.dark body {
+  background-color: #141414;
+}
+
+.dark .bg-white {
+  background-color: #1c1c1c;
+}
+
+.dark .bg-slate-50,
+.dark .bg-surface-muted {
+  background-color: #202020;
+}
+
+.dark .border-slate-100,
+.dark .border-slate-200 {
+  border-color: #2b2b2b;
+}
+
+.dark .text-brand {
+  color: #f3f1ea;
+}
+
+.dark .text-steel {
+  color: #a3a3a3;
+}
+
+.dark .text-slate-600,
+.dark .text-slate-700,
+.dark .text-slate-900 {
+  color: #d4d4d4;
+}
+
+.dark .shadow-card {
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.5);
+}
+
+/* Status colors (emerald/red/amber backgrounds) get darkened but keep
+   their hue, so success/error/warning stays recognizable. */
+.dark .bg-emerald-50 {
+  background-color: rgba(16, 185, 129, 0.12);
+}
+.dark .bg-red-50 {
+  background-color: rgba(239, 68, 68, 0.12);
+}
+.dark .bg-amber-50 {
+  background-color: rgba(245, 158, 11, 0.12);
+}
+
 @keyframes go-online-pulse {
   0%, 100% { box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.45); }
   50% { box-shadow: 0 0 0 14px rgba(16, 185, 129, 0); }
