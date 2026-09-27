@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Space_Grotesk, Inter } from "next/font/google";
 import { AuthProvider } from "@/contexts/AuthContext";
+import ClientRoot from "@/components/ClientRoot";
 import "./globals.css";
 
 const spaceGrotesk = Space_Grotesk({
@@ -14,9 +15,6 @@ export const metadata: Metadata = {
   description: "Accept and manage delivery requests as a Crafteey courier.",
 };
 
-// Runs before paint, before React hydrates — avoids a light-mode flash on
-// load for anyone who's chosen dark or whose system is set to dark.
-// Mirrors the exact key/logic AppearanceSection.tsx uses on toggle.
 const THEME_INIT_SCRIPT = `
 (function() {
   try {
@@ -35,7 +33,9 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <script dangerouslySetInnerHTML={{ __html: THEME_INIT_SCRIPT }} />
       </head>
       <body className={`${spaceGrotesk.variable} ${inter.variable} font-body`}>
-        <AuthProvider>{children}</AuthProvider>
+        <AuthProvider>
+          <ClientRoot>{children}</ClientRoot>
+        </AuthProvider>
       </body>
     </html>
   );
