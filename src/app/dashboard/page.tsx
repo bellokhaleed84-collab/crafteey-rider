@@ -10,8 +10,15 @@ import { useRiderStatus } from "@/contexts/RiderStatusContext";
 // the same place.
 export default function DashboardHomePage() {
   const router = useRouter();
-  const { isOnline, togglingOnline, toggleOnline, location, permissionState, geoError } =
-    useRiderStatus();
+  const {
+    isOnline,
+    togglingOnline,
+    initializing,
+    toggleOnline,
+    location,
+    permissionState,
+    geoError,
+  } = useRiderStatus();
 
   function handleMapTap() {
     if (!isOnline) return;
@@ -26,6 +33,19 @@ export default function DashboardHomePage() {
     if (wasOffline) {
       router.push("/dashboard/online");
     }
+  }
+
+  // Covers the gap between the splash screen dismissing (auth resolved)
+  // and the initial "am I already online?" fetch resolving, so the
+  // toggle/map never briefly shows the wrong state.
+  if (initializing) {
+    return (
+      <div className="space-y-4 pb-4 animate-pulse">
+        <div className="h-6 w-40 rounded bg-slate-200" />
+        <div className="mx-auto aspect-square w-full max-w-sm rounded-2xl bg-slate-200" />
+        <div className="h-12 w-full rounded-xl bg-slate-200" />
+      </div>
+    );
   }
 
   return (

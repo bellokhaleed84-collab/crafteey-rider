@@ -38,6 +38,7 @@ const HIDE_AFTER_TIMEOUT_MS = 20000;
 interface RiderStatusContextType {
   isOnline: boolean;
   togglingOnline: boolean;
+  initializing: boolean;
   toggleOnline: () => Promise<void>;
   onlineError: string | null;
   location: LatLng | null;
@@ -60,6 +61,10 @@ export function RiderStatusProvider({ children }: { children: ReactNode }) {
   const [isOnline, setIsOnline] = useState(false);
   const [togglingOnline, setTogglingOnline] = useState(false);
   const [onlineError, setOnlineError] = useState<string | null>(null);
+  // True until the initial "am I already online?" check has resolved.
+  // Lets the dashboard show a skeleton instead of briefly flashing
+  // "You're offline" before this fetch comes back.
+  const [initializing, setInitializing] = useState(true);
 
   const [requests, setRequests] = useState<QueueRequest[]>([]);
   const [acceptingId, setAcceptingId] = useState<string | null>(null);
@@ -114,7 +119,10 @@ export function RiderStatusProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     (async () => {
       const token = await getIdToken();
-      if (!token) return;
+      if (!token) {
+        setInitializing(false);
+        return;
+      }
       const res = await fetch("/api/couriers/me", {
         headers: { Authorization: `Bearer ${token}` },
       });
@@ -125,6 +133,7 @@ export function RiderStatusProvider({ children }: { children: ReactNode }) {
           geo.start();
         }
       }
+      setInitializing(false);
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -285,6 +294,7 @@ export function RiderStatusProvider({ children }: { children: ReactNode }) {
       value={{
         isOnline,
         togglingOnline,
+        initializing,
         toggleOnline,
         onlineError,
         location: geo.location,
