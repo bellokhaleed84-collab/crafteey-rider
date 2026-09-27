@@ -8,6 +8,12 @@ import { initiateTransfer } from "@/lib/paystack";
 import crypto from "crypto";
 
 function isWithdrawalDay(): boolean {
+  // Testing/override switch — set ALLOW_WITHDRAWALS_ANY_DAY=true in your
+  // env (.env.local or Vercel) to bypass the Mon/Thu restriction without
+  // touching this code. Leave unset or "false" for normal behavior.
+  if (process.env.ALLOW_WITHDRAWALS_ANY_DAY === "true") {
+    return true;
+  }
   const day = new Date().getDay();
   return day === 1 || day === 4; // Monday or Thursday
 }
