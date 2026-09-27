@@ -39,6 +39,7 @@ interface RiderStatusContextType {
   isOnline: boolean;
   togglingOnline: boolean;
   toggleOnline: () => Promise<void>;
+  onlineError: string | null;
   location: LatLng | null;
   permissionState: GeoPermissionState;
   geoError: string | null;
@@ -58,6 +59,7 @@ export function RiderStatusProvider({ children }: { children: ReactNode }) {
 
   const [isOnline, setIsOnline] = useState(false);
   const [togglingOnline, setTogglingOnline] = useState(false);
+  const [onlineError, setOnlineError] = useState<string | null>(null);
 
   const [requests, setRequests] = useState<QueueRequest[]>([]);
   const [acceptingId, setAcceptingId] = useState<string | null>(null);
@@ -67,21 +69,46 @@ export function RiderStatusProvider({ children }: { children: ReactNode }) {
   const [hiddenTick, setHiddenTick] = useState(0);
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  async function sendPresence(next: boolean, coords?: LatLng | null) {
+  // Returns whether the server actually accepted the presence change,
+  // instead of silently swallowing both network errors and non-2xx
+  // responses like the previous version did. Callers decide what to do
+  // with a failure — the periodic GPS ping below ignores it (a dropped
+  // ping isn't worth interrupting an active rider over), but the
+  // explicit toggleOnline() call below needs to know, since a rejected
+  // "go online" (e.g. the rider is suspended) must NOT flip the UI to
+  // online or start burning battery on a location watch.
+  async function sendPresence(
+    next: boolean,
+    coords?: LatLng | null
+  ): Promise<{ ok: boolean; error?: string }> {
     const token = await getIdToken();
-    if (!token) return;
-    await fetch("/api/couriers/online", {
-      method: "PATCH",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${token}`,
-      },
-      body: JSON.stringify({ isOnline: next, location: coords ?? null }),
-    }).catch(() => {});
+    if (!token) return { ok: false, error: "You're not signed in." };
+    try {
+      const res = await fetch("/api/couriers/online", {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ isOnline: next, location: coords ?? null }),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        return { ok: false, error: data.error || "Couldn't update your status." };
+      }
+      return { ok: true };
+    } catch {
+      return { ok: false, error: "Couldn't reach the server. Check your connection." };
+    }
   }
 
   const geo = useGeolocation({
-    onThrottledUpdate: (coords) => sendPresence(true, coords),
+    // Fire-and-forget on purpose — a dropped periodic location ping
+    // while already online shouldn't flip the rider offline or show an
+    // error; it'll just succeed on the next tick.
+    onThrottledUpdate: (coords) => {
+      sendPresence(true, coords);
+    },
   });
 
   useEffect(() => {
@@ -138,16 +165,30 @@ export function RiderStatusProvider({ children }: { children: ReactNode }) {
 
   async function toggleOnline() {
     setAcceptError(null);
+    setOnlineError(null);
     setTogglingOnline(true);
     try {
       if (isOnline) {
         geo.stop();
-        await sendPresence(false);
+        const result = await sendPresence(false);
+        // Going offline failing server-side is rare and low-stakes —
+        // still flip the local UI to offline so the rider isn't stuck
+        // mid-shift, but let them know the server didn't confirm it.
+        if (!result.ok) {
+          setOnlineError(result.error ?? "Couldn't confirm you're offline. Try again if this persists.");
+        }
         setIsOnline(false);
       } else {
+        const result = await sendPresence(true, geo.location);
+        if (!result.ok) {
+          // The server rejected going online (e.g. account suspended
+          // for outstanding debt) — surface it and stop here. Do NOT
+          // flip isOnline or start the location watch.
+          setOnlineError(result.error ?? "Couldn't go online.");
+          return;
+        }
         setIsOnline(true);
         geo.start();
-        await sendPresence(true, geo.location);
       }
     } finally {
       setTogglingOnline(false);
@@ -245,6 +286,7 @@ export function RiderStatusProvider({ children }: { children: ReactNode }) {
         isOnline,
         togglingOnline,
         toggleOnline,
+        onlineError,
         location: geo.location,
         permissionState: geo.permissionState,
         geoError: geo.error,
