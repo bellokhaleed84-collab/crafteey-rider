@@ -3,6 +3,8 @@
 import { useEffect, useRef, useState } from "react";
 import mapboxgl from "mapbox-gl";
 import type { RouteGeometry } from "@/lib/directions";
+import GoogleMapsFab from "@/components/map/GoogleMapsFab";
+import type { GoogleTravelMode } from "@/lib/navigation";
 
 mapboxgl.accessToken = process.env.NEXT_PUBLIC_MAPBOX_TOKEN ?? "";
 
@@ -17,6 +19,7 @@ type Pt = [number, number];
 const MAP_STYLE = "mapbox://styles/mapbox/dark-v11";
 const ORANGE = "#FF7A1A";
 const ROUTE_SRC = "rider-route";
+const ARROW_IMAGE = "route-arrow";
 const FOLLOW_ZOOM = 16.5;
 const FOLLOW_PITCH = 60;
 const PREVIEW_ZOOM = 15.5;
@@ -36,6 +39,13 @@ interface RouteMapProps {
   followCourier?: boolean;
   // Distance of the "Follow me" button from the bottom of the map.
   recenterBottom?: number;
+  // The stop to put the pulsing ring and heading on. Defaults to
+  // dropoff, then pickup.
+  nextStop?: LatLng | null;
+  // Where the round Google Maps button goes. undefined = automatic (the
+  // current stop while chasing, nothing otherwise). null = no button.
+  googleMapsTo?: LatLng | null;
+  googleTravelMode?: GoogleTravelMode;
 }
 
 function distM(a: LatLng, b: LatLng): number {
@@ -98,6 +108,33 @@ function setLine(map: mapboxgl.Map, coords: Pt[]) {
   }
 }
 
+// A small white chevron pointing right. Mapbox turns it to follow the
+// direction of the line, so it points the way the rider should travel.
+function ensureArrowImage(map: mapboxgl.Map) {
+  try {
+    if (map.hasImage(ARROW_IMAGE)) return;
+    const size = 28;
+    const canvas = document.createElement("canvas");
+    canvas.width = size;
+    canvas.height = size;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+    ctx.clearRect(0, 0, size, size);
+    ctx.strokeStyle = "#ffffff";
+    ctx.lineWidth = 5;
+    ctx.lineCap = "round";
+    ctx.lineJoin = "round";
+    ctx.beginPath();
+    ctx.moveTo(9, 6);
+    ctx.lineTo(19, 14);
+    ctx.lineTo(9, 22);
+    ctx.stroke();
+    map.addImage(ARROW_IMAGE, ctx.getImageData(0, 0, size, size), { pixelRatio: 2 });
+  } catch {
+    // arrows are a visual extra, never break the map
+  }
+}
+
 // Runs on every style load, because a new style wipes custom layers.
 function ensureLayers(map: mapboxgl.Map) {
   try {
@@ -136,14 +173,30 @@ function ensureLayers(map: mapboxgl.Map) {
         type: "line",
         source: ROUTE_SRC,
         layout: { "line-cap": "round", "line-join": "round" },
-        paint: { "line-color": ORANGE, "line-width": 12, "line-opacity": 0.25, "line-blur": 6 },
+        paint: { "line-color": ORANGE, "line-width": 14, "line-opacity": 0.25, "line-blur": 6 },
       } as any);
       map.addLayer({
         id: "rider-route-line",
         type: "line",
         source: ROUTE_SRC,
         layout: { "line-cap": "round", "line-join": "round" },
-        paint: { "line-color": ORANGE, "line-width": 5, "line-opacity": 1 },
+        paint: { "line-color": ORANGE, "line-width": 6, "line-opacity": 1 },
+      } as any);
+      ensureArrowImage(map);
+      map.addLayer({
+        id: "rider-route-arrows",
+        type: "symbol",
+        source: ROUTE_SRC,
+        layout: {
+          "symbol-placement": "line",
+          "symbol-spacing": 56,
+          "icon-image": ARROW_IMAGE,
+          "icon-size": 1,
+          "icon-allow-overlap": true,
+          "icon-ignore-placement": true,
+          "icon-rotation-alignment": "map",
+          "icon-pitch-alignment": "map",
+        },
       } as any);
     }
   } catch {
@@ -175,6 +228,9 @@ export default function RouteMap({
   showControls = true,
   followCourier = false,
   recenterBottom,
+  nextStop,
+  googleMapsTo,
+  googleTravelMode,
 }: RouteMapProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<mapboxgl.Map | null>(null);
@@ -193,12 +249,15 @@ export default function RouteMap({
   const plainMeRef = useRef(false);
   plainMeRef.current = !followCourier && !pickup && !dropoff && !route;
 
-  // The stop the rider is heading to (only one of pickup/dropoff is passed at a time).
-  const target = dropoff ?? pickup ?? null;
+  // The stop the rider is heading to.
+  const target = nextStop ?? dropoff ?? pickup ?? null;
   const targetRef = useRef<LatLng | null>(target);
   targetRef.current = target;
   const tLat = target?.lat;
   const tLng = target?.lng;
+
+  // Where the round Google Maps button goes.
+  const gmDest = googleMapsTo !== undefined ? googleMapsTo : followCourier ? target : null;
 
   const followRef = useRef(true);
   const hasCourierRef = useRef(false);
@@ -248,6 +307,20 @@ export default function RouteMap({
       );
     }
 
+    // Keep the map sized right when its box changes (for example when a
+    // request sheet slides in underneath it).
+    let resizeObserver: ResizeObserver | null = null;
+    if (typeof ResizeObserver !== "undefined") {
+      resizeObserver = new ResizeObserver(() => {
+        try {
+          map.resize();
+        } catch {
+          // map already gone
+        }
+      });
+      resizeObserver.observe(containerRef.current);
+    }
+
     // Any manual gesture pauses following until the rider taps "Follow me".
     const pause = (e: any) => {
       if (e?.originalEvent && hasCourierRef.current && followRef.current) {
@@ -281,6 +354,7 @@ export default function RouteMap({
 
     return () => {
       const current = mapRef.current;
+      resizeObserver?.disconnect();
       cancelAnimationFrame(animRef.current.raf);
       animRef.current.raf = 0;
       animRef.current.pos = null;
@@ -594,6 +668,9 @@ export default function RouteMap({
   return (
     <div className={`crafteey-map-shell relative overflow-hidden ${className ?? "h-64 w-full rounded-2xl"}`}>
       <div ref={containerRef} className="h-full w-full" />
+      {gmDest && (
+        <GoogleMapsFab lat={gmDest.lat} lng={gmDest.lng} travelMode={googleTravelMode} />
+      )}
       {showRecenter && (
         <button
           type="button"

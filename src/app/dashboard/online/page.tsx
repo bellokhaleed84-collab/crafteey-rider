@@ -1,10 +1,11 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Banknote, Clock, MapPin, MessageSquare, Package, ShieldCheck, ArrowRight } from "lucide-react";
 import MapOrFallback from "@/components/map/MapOrFallback";
 import { useRiderStatus } from "@/contexts/RiderStatusContext";
+import { getRoute, type RouteGeometry } from "@/lib/directions";
 
 const VEHICLE_ICON: Record<string, string> = {
   bicycle: "\uD83D\uDEB2",
@@ -62,6 +63,12 @@ export default function OnlineSearchPage() {
 
   const [secondsLeft, setSecondsLeft] = useState(Math.round(acceptWindowMs / 1000));
 
+  // The route drawn on the map when a request arrives:
+  // rider -> pickup -> drop-off, with direction arrows.
+  const [routeGeo, setRouteGeo] = useState<RouteGeometry | null>(null);
+  const locationRef = useRef(location);
+  locationRef.current = location;
+
   // Restart the visible countdown whenever a new request becomes the top
   // one - purely cosmetic, the actual accept-window timeout and decline
   // logic already live in RiderStatusContext.
@@ -73,6 +80,41 @@ export default function OnlineSearchPage() {
     }, 1000);
     return () => clearInterval(interval);
   }, [topRequest?._id, acceptWindowMs]);
+
+  // Fetch the route once per request (not on every GPS update).
+  useEffect(() => {
+    setRouteGeo(null);
+    if (!topRequest) return;
+    const { pickupLat, pickupLng, dropoffLat, dropoffLng } = topRequest;
+    if (
+      typeof pickupLat !== "number" ||
+      typeof pickupLng !== "number" ||
+      typeof dropoffLat !== "number" ||
+      typeof dropoffLng !== "number"
+    ) {
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      const pickupPt = { lat: pickupLat, lng: pickupLng };
+      const dropoffPt = { lat: dropoffLat, lng: dropoffLng };
+      const rider = locationRef.current;
+      const [toPickup, trip] = await Promise.all([
+        rider ? getRoute(rider, pickupPt) : Promise.resolve(null),
+        getRoute(pickupPt, dropoffPt),
+      ]);
+      if (cancelled) return;
+      const coordinates = [
+        ...(toPickup?.geometry.coordinates ?? []),
+        ...(trip?.geometry.coordinates ?? []),
+      ];
+      if (coordinates.length > 1) setRouteGeo({ type: "LineString", coordinates });
+    })();
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [topRequest?._id]);
 
   // Offline riders have nothing to do here - send them home.
   useEffect(() => {
@@ -97,6 +139,13 @@ export default function OnlineSearchPage() {
 
   const hasPickupCoords = typeof topRequest?.pickupLat === "number" && typeof topRequest?.pickupLng === "number";
   const hasDropoffCoords = typeof topRequest?.dropoffLat === "number" && typeof topRequest?.dropoffLng === "number";
+
+  const pickupPt = hasPickupCoords
+    ? { lat: topRequest!.pickupLat as number, lng: topRequest!.pickupLng as number }
+    : null;
+  const dropoffPt = hasDropoffCoords
+    ? { lat: topRequest!.dropoffLat as number, lng: topRequest!.dropoffLng as number }
+    : null;
 
   const riderToPickupKm =
     location && hasPickupCoords
@@ -131,10 +180,19 @@ export default function OnlineSearchPage() {
     >
       {/* Map takes all the space the bottom sheet does not need */}
       <div className="relative min-h-0 flex-1">
-        <MapOrFallback courierLocation={location} className="h-full w-full" />
+        <MapOrFallback
+          courierLocation={location}
+          pickup={pickupPt}
+          dropoff={dropoffPt}
+          route={routeGeo}
+          nextStop={pickupPt}
+          googleMapsTo={pickupPt}
+          googleTravelMode={topRequest?.vehicleType === "bicycle" ? "bicycling" : "driving"}
+          className="h-full w-full"
+        />
 
         <div
-          className="absolute inset-x-0 top-0 flex items-center justify-between px-4 pb-4"
+          className="pointer-events-none absolute inset-x-0 top-0 flex items-center justify-between px-4 pb-4"
           style={{ paddingTop: "max(1rem, env(safe-area-inset-top))" }}
         >
           <span className="flex items-center gap-1 rounded-full bg-white/90 px-3 py-2 text-xs font-semibold text-brand shadow">
@@ -144,7 +202,7 @@ export default function OnlineSearchPage() {
         </div>
 
         {topRequest && (
-          <div className="absolute bottom-3 left-4">
+          <div className="pointer-events-none absolute bottom-3 left-4">
             <span className="flex items-center gap-2 rounded-2xl bg-sunshine px-3 py-2 text-xs font-bold text-brand shadow">
               <span className="text-base leading-none">{VEHICLE_ICON[topRequest.vehicleType] ?? ""}</span>
               <span>
