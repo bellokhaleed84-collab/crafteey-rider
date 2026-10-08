@@ -1,6 +1,11 @@
 import { Schema, models, model } from "mongoose";
 import { COURIER_STATUS, VEHICLE_TYPES } from "@/lib/constants";
 
+// This file is an identical copy in crafteey-client and crafteey-rider.
+// Keep both copies the same.
+export const PAYMENT_METHODS = ["cash", "transfer"] as const;
+export const PAYMENT_STATUSES = ["unpaid", "client_marked_paid", "collected"] as const;
+
 const CourierRequestSchema = new Schema(
   {
     clientUid: { type: String, required: true, index: true },
@@ -22,16 +27,21 @@ const CourierRequestSchema = new Schema(
 
     note: { type: String, default: "" },
 
-    // Rider payout for this delivery, in kobo.
+    // All money fields are in kobo.
+    // Full delivery fee the customer pays (direct rides only).
+    totalFeeKobo: { type: Number, default: null },
+    // Rider's share of the fee.
     riderEarningKobo: { type: Number, default: null },
-    // Platform's 20% cut — for direct bookings this becomes debt on
-    // delivery; for Hub orders it's informational (platform already
-    // deducted it from the order total at checkout).
+    // Platform cut. For direct rides this becomes rider debt on delivery.
     platformCommissionKobo: { type: Number, default: null },
-    // Set true once this request's earnings have been applied to the
-    // courier's wallet/debt on delivery — guards against double-counting
-    // if the delivery-complete transition were ever triggered twice.
+    // Guards against settling earnings twice.
     earningsSettled: { type: Boolean, default: false },
+
+    // Direct rides: how the customer pays the rider.
+    paymentMethod: { type: String, enum: PAYMENT_METHODS, default: "cash" },
+    paymentStatus: { type: String, enum: PAYMENT_STATUSES, default: "unpaid" },
+    clientMarkedPaidAt: { type: Date, default: null },
+    paymentCollectedAt: { type: Date, default: null },
 
     source: { type: String, enum: ["direct", "hub"], default: "direct", index: true },
     hubOrderId: { type: String, default: null, index: true },
@@ -55,6 +65,10 @@ const CourierRequestSchema = new Schema(
       type: new Schema({ lat: Number, lng: Number }, { _id: false }),
       default: null,
     },
+
+    acceptedAt: { type: Date, default: null },
+    pickedUpAt: { type: Date, default: null },
+    deliveredAt: { type: Date, default: null },
   },
   { timestamps: true }
 );

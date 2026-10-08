@@ -2,14 +2,14 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Clock, MapPin, MessageSquare, Package, ShieldCheck, ArrowRight } from "lucide-react";
+import { Banknote, Clock, MapPin, MessageSquare, Package, ShieldCheck, ArrowRight } from "lucide-react";
 import MapOrFallback from "@/components/map/MapOrFallback";
 import { useRiderStatus } from "@/contexts/RiderStatusContext";
 
 const VEHICLE_ICON: Record<string, string> = {
-  bicycle: "🚲",
-  motorcycle: "🏍️",
-  cargo: "🚚",
+  bicycle: "\uD83D\uDEB2",
+  motorcycle: "\uD83C\uDFCD\uFE0F",
+  cargo: "\uD83D\uDE9A",
 };
 
 const VEHICLE_LABEL: Record<string, string> = {
@@ -18,9 +18,9 @@ const VEHICLE_LABEL: Record<string, string> = {
   cargo: "Cargo",
 };
 
-// Rough average speeds for an ETA estimate — same assumption used on the
-// client side's fare estimate, kept local here rather than importing a
-// shared lib since this file only needs it for display, not pricing.
+// Rough average speeds for an ETA estimate - same assumption used on the
+// client side's fare estimate, kept local since this file only needs it
+// for display, not pricing.
 const AVERAGE_SPEED_KMH: Record<string, number> = {
   bicycle: 15,
   motorcycle: 30,
@@ -39,7 +39,7 @@ function haversineKm(a: { lat: number; lng: number }, b: { lat: number; lng: num
 }
 
 function formatNaira(kobo: number): string {
-  return `₦${Math.round(kobo / 100).toLocaleString()}`;
+  return `\u20A6${Math.round(kobo / 100).toLocaleString()}`;
 }
 
 function formatKm(km: number): string {
@@ -63,7 +63,7 @@ export default function OnlineSearchPage() {
   const [secondsLeft, setSecondsLeft] = useState(Math.round(acceptWindowMs / 1000));
 
   // Restart the visible countdown whenever a new request becomes the top
-  // one — purely cosmetic, the actual accept-window timeout and decline
+  // one - purely cosmetic, the actual accept-window timeout and decline
   // logic already live in RiderStatusContext.
   useEffect(() => {
     if (!topRequest) return;
@@ -102,6 +102,12 @@ export default function OnlineSearchPage() {
 
   const isHubOrder = !!topRequest?.vendorName;
 
+  // Payment fields live on the request but may not be on the context's type.
+  const payInfo = (topRequest ?? {}) as unknown as {
+    paymentMethod?: string;
+    totalFeeKobo?: number | null;
+  };
+
   return (
     <div className="flex h-[100dvh] flex-col">
       <div className="relative flex-1">
@@ -114,7 +120,7 @@ export default function OnlineSearchPage() {
               aria-label="Back to home"
               className="flex h-9 w-9 items-center justify-center rounded-full bg-white/90 text-lg font-bold text-brand shadow"
             >
-              ←
+              {"\u2190"}
             </button>
             <span className="flex items-center gap-1 rounded-full bg-white/90 px-3 py-1.5 text-xs font-semibold text-brand shadow">
               <span className="h-2 w-2 rounded-full bg-emerald-500" />
@@ -150,11 +156,11 @@ export default function OnlineSearchPage() {
               <div className="relative flex h-16 w-16 items-center justify-center">
                 <span className="absolute h-full w-full animate-ping rounded-full bg-brand-accent/20" />
                 <span className="relative flex h-10 w-10 items-center justify-center rounded-full bg-brand-accent text-white">
-                  🔍
+                  {"\uD83D\uDD0D"}
                 </span>
               </div>
               <div className="text-center">
-                <p className="text-base font-bold text-brand">Searching for deliveries…</p>
+                <p className="text-base font-bold text-brand">Searching for deliveries...</p>
                 <p className="mt-1 text-sm text-steel">New requests will appear here automatically</p>
               </div>
             </div>
@@ -169,7 +175,7 @@ export default function OnlineSearchPage() {
 
             {/* Category badge */}
             <span className="inline-flex items-center gap-1.5 rounded-full bg-sunshine px-3 py-1 text-xs font-bold text-brand">
-              {isHubOrder ? "🍔 Food Delivery" : "📦 Delivery"}
+              {isHubOrder ? "\uD83C\uDF54 Food Delivery" : "\uD83D\uDCE6 Delivery"}
             </span>
 
             {/* Vendor / order header */}
@@ -195,10 +201,29 @@ export default function OnlineSearchPage() {
                 </div>
               )}
               <div className="flex flex-1 items-center gap-2 rounded-xl bg-slate-50 px-3 py-3">
-                <ShieldCheck className="h-5 w-5 shrink-0 text-brand-accent" />
+                {isHubOrder ? (
+                  <ShieldCheck className="h-5 w-5 shrink-0 text-brand-accent" />
+                ) : (
+                  <Banknote className="h-5 w-5 shrink-0 text-brand-accent" />
+                )}
                 <div className="min-w-0">
-                  <p className="text-xs font-bold text-brand">In-app payment</p>
-                  <p className="text-[11px] text-steel">No cash</p>
+                  {isHubOrder ? (
+                    <>
+                      <p className="text-xs font-bold text-brand">In-app payment</p>
+                      <p className="text-[11px] text-steel">No cash</p>
+                    </>
+                  ) : (
+                    <>
+                      <p className="text-xs font-bold text-brand">
+                        {payInfo.paymentMethod === "transfer" ? "Bank transfer" : "Cash"}
+                      </p>
+                      <p className="text-[11px] text-steel">
+                        {typeof payInfo.totalFeeKobo === "number"
+                          ? `Collect ${formatNaira(payInfo.totalFeeKobo)}`
+                          : "Collect from customer"}
+                      </p>
+                    </>
+                  )}
                 </div>
               </div>
             </div>
@@ -240,12 +265,12 @@ export default function OnlineSearchPage() {
               <div className="flex flex-col items-center gap-1 text-center">
                 <Clock className="h-4 w-4 text-steel" />
                 <p className="text-xs text-steel">Est. time</p>
-                <p className="text-sm font-bold text-brand">{etaMinutes !== null ? `${etaMinutes} min` : "—"}</p>
+                <p className="text-sm font-bold text-brand">{etaMinutes !== null ? `${etaMinutes} min` : "\u2014"}</p>
               </div>
               <div className="flex flex-col items-center gap-1 text-center">
                 <MapPin className="h-4 w-4 text-steel" />
                 <p className="text-xs text-steel">Distance</p>
-                <p className="text-sm font-bold text-brand">{routeKm !== null ? formatKm(routeKm) : "—"}</p>
+                <p className="text-sm font-bold text-brand">{routeKm !== null ? formatKm(routeKm) : "\u2014"}</p>
               </div>
               <div className="flex flex-col items-center gap-1 text-center">
                 <Package className="h-4 w-4 text-steel" />
@@ -281,7 +306,7 @@ export default function OnlineSearchPage() {
               )}
               <span className="relative flex items-center gap-2">
                 {acceptingId === topRequest._id ? (
-                  "Accepting…"
+                  "Accepting..."
                 ) : (
                   <>
                     Accept Order <ArrowRight className="h-5 w-5" />

@@ -21,9 +21,8 @@ function hubStatusFor(next: string): string | null {
   return null;
 }
 
-// Short label for the transaction ledger — falls back to a shortened id
-// if orderNumber isn't set on this request (e.g. older documents from
-// before orderNumber existed).
+// Short label for the transaction ledger. Falls back to a shortened id
+// if orderNumber isn't set on this request.
 function transactionLabel(request: { source: string; orderNumber?: string | null; _id: unknown }): string {
   const idTail = String(request._id).slice(-6).toUpperCase();
   if (request.source === "hub") {
@@ -118,14 +117,33 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
       return NextResponse.json({ error: `Can't advance status from "${request.status}"` }, { status: 409 });
     }
 
+    // Direct rides: the rider must confirm the payment before finishing.
+    // Rides without a saved fee (older requests) skip this step.
+    if (
+      request.status === COURIER_STATUS.EN_ROUTE &&
+      request.source === "direct" &&
+      typeof request.totalFeeKobo === "number" &&
+      request.totalFeeKobo > 0 &&
+      request.paymentStatus !== "collected"
+    ) {
+      return NextResponse.json(
+        { error: "Collect the payment before finishing the delivery." },
+        { status: 409 }
+      );
+    }
+
+    const set: Record<string, unknown> = { status: next };
+    if (next === COURIER_STATUS.PICKED_UP) set.pickedUpAt = new Date();
+    if (next === COURIER_STATUS.DELIVERED) set.deliveredAt = new Date();
+
     const updated = await CourierRequest.findOneAndUpdate(
       { _id: params.id, courierUid: uid, status: request.status },
-      { $set: { status: next } },
+      { $set: set },
       { new: true }
     );
 
     if (!updated) {
-      return NextResponse.json({ error: "Status already changed — refresh and try again" }, { status: 409 });
+      return NextResponse.json({ error: "Status already changed - refresh and try again" }, { status: 409 });
     }
 
     if (updated.source === "hub" && updated.hubOrderId) {
