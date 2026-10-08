@@ -74,18 +74,19 @@ function angleDiff(from: number, to: number): number {
   return ((to - from + 540) % 360) - 180;
 }
 
-function buildMotorcycleEl(): HTMLDivElement {
+// The big navigation arrow that sits on the rider. Same shape as the orange
+// arrow button. It points the way the rider is heading.
+function buildRiderArrowEl(): HTMLDivElement {
   const el = document.createElement("div");
-  el.style.cssText = "width:48px;height:48px;pointer-events:none;";
+  el.style.cssText =
+    "width:72px;height:72px;pointer-events:none;filter:drop-shadow(0 3px 6px rgba(0,0,0,0.55));";
   el.innerHTML =
-    '<svg viewBox="0 0 48 48" width="48" height="48" xmlns="http://www.w3.org/2000/svg">' +
-    '<circle cx="24" cy="24" r="22" fill="rgba(255,122,26,0.18)"/>' +
-    '<rect x="22" y="4" width="4" height="12" rx="2" fill="#1a1a1a"/>' +
-    '<rect x="21.5" y="30" width="5" height="14" rx="2.5" fill="#1a1a1a"/>' +
-    '<ellipse cx="24" cy="23" rx="6.5" ry="12" fill="#FF7A1A" stroke="#ffffff" stroke-width="1.5"/>' +
-    '<rect x="13" y="13" width="22" height="3" rx="1.5" fill="#ffffff"/>' +
-    '<circle cx="24" cy="25" r="5" fill="#222222" stroke="#ffffff" stroke-width="1.5"/>' +
-    '<circle cx="24" cy="7" r="1.8" fill="#ffd27a"/>' +
+    '<svg viewBox="0 0 72 72" width="72" height="72" xmlns="http://www.w3.org/2000/svg">' +
+    '<circle cx="36" cy="36" r="34" fill="rgba(255,122,26,0.22)"/>' +
+    '<g transform="translate(7.2 8.4) scale(2.4)">' +
+    '<path d="M12 2L4.5 20.29a.5.5 0 00.72.63L12 17l6.78 3.92a.5.5 0 00.72-.63L12 2z" ' +
+    'fill="#FF7A1A" stroke="#ffffff" stroke-width="1.1" stroke-linejoin="round"/>' +
+    "</g>" +
     "</svg>";
   return el;
 }
@@ -212,8 +213,12 @@ interface Anim {
   to: LatLng;
   start: number;
   dur: number;
+  // Where the big arrow points (turns quickly).
   heading: number;
   targetHeading: number;
+  // Where the camera is turned to (follows the road more slowly, so the
+  // arrow visibly swings left or right in a turn).
+  camBearing: number;
   lastUpdateAt: number;
   raf: number;
   lastLineAt: number;
@@ -277,6 +282,7 @@ export default function RouteMap({
     dur: 1,
     heading: 0,
     targetHeading: 0,
+    camBearing: 0,
     lastUpdateAt: 0,
     raf: 0,
     lastLineAt: 0,
@@ -510,15 +516,18 @@ export default function RouteMap({
       a.dur = 1;
       a.heading = targetRef.current ? bearingDeg(courierLocation, targetRef.current) : 0;
       a.targetHeading = a.heading;
+      a.camBearing = a.heading;
       a.lastUpdateAt = now;
       a.camReadyAt = now + 1400;
       hasCourierRef.current = true;
       followRef.current = true;
       setShowRecenter(false);
 
+      // "viewport" pitch keeps the big arrow standing up and readable even
+      // when the 3D camera is tilted. "map" rotation turns it with the road.
       courierMarkerRef.current = new mapboxgl.Marker({
-        element: buildMotorcycleEl(),
-        pitchAlignment: "map",
+        element: buildRiderArrowEl(),
+        pitchAlignment: "viewport",
         rotationAlignment: "map",
       })
         .setLngLat([courierLocation.lng, courierLocation.lat])
@@ -530,7 +539,7 @@ export default function RouteMap({
           center: [courierLocation.lng, courierLocation.lat],
           zoom: FOLLOW_ZOOM,
           pitch: FOLLOW_PITCH,
-          bearing: a.heading,
+          bearing: a.camBearing,
           duration: 1200,
         });
       } else if (plainMeRef.current) {
@@ -602,14 +611,17 @@ export default function RouteMap({
       lng: a.from.lng + (a.to.lng - a.from.lng) * t,
     };
     a.pos = pos;
-    a.heading = (a.heading + angleDiff(a.heading, a.targetHeading) * 0.08 + 360) % 360;
+    // The arrow turns fast; the camera turns slowly. The gap between them is
+    // what makes the arrow visibly swing left or right in a turn.
+    a.heading = (a.heading + angleDiff(a.heading, a.targetHeading) * 0.12 + 360) % 360;
+    a.camBearing = (a.camBearing + angleDiff(a.camBearing, a.heading) * 0.03 + 360) % 360;
 
     marker.setLngLat([pos.lng, pos.lat]);
     marker.setRotation(a.heading);
 
     if (followRef.current && now > a.camReadyAt) {
       if (followCourierRef.current) {
-        map.jumpTo({ center: [pos.lng, pos.lat], bearing: a.heading });
+        map.jumpTo({ center: [pos.lng, pos.lat], bearing: a.camBearing });
       } else if (plainMeRef.current) {
         map.jumpTo({ center: [pos.lng, pos.lat] });
       }
@@ -647,11 +659,12 @@ export default function RouteMap({
     followRef.current = true;
     setShowRecenter(false);
     a.camReadyAt = performance.now() + 900;
+    a.camBearing = a.heading;
     map.easeTo({
       center: [a.pos.lng, a.pos.lat],
       zoom: FOLLOW_ZOOM,
       pitch: FOLLOW_PITCH,
-      bearing: a.heading,
+      bearing: a.camBearing,
       duration: 800,
     });
   }
