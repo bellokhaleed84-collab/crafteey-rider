@@ -46,6 +46,8 @@ interface RouteMapProps {
   // current stop while chasing, nothing otherwise). null = no button.
   googleMapsTo?: LatLng | null;
   googleTravelMode?: GoogleTravelMode;
+  // Bump this number to make the chase camera snap back onto the rider.
+  recenterSignal?: number;
 }
 
 function distM(a: LatLng, b: LatLng): number {
@@ -231,6 +233,7 @@ export default function RouteMap({
   nextStop,
   googleMapsTo,
   googleTravelMode,
+  recenterSignal,
 }: RouteMapProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<mapboxgl.Map | null>(null);
@@ -395,6 +398,13 @@ export default function RouteMap({
     if (followCourierRef.current && animRef.current.pos) recenter();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tLat, tLng]);
+
+  // "Start navigation" asks the chase camera to snap back onto the rider.
+  useEffect(() => {
+    if (!recenterSignal) return;
+    if (followCourierRef.current) recenter();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [recenterSignal]);
 
   // Route line
   useEffect(() => {

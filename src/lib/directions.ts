@@ -7,10 +7,20 @@ export interface RouteGeometry {
   coordinates: [number, number][];
 }
 
+// One turn-by-turn step. "location" is where the maneuver happens, as [lng, lat].
+export interface RouteStep {
+  instruction: string;
+  distanceMeters: number;
+  location: [number, number];
+  type: string;
+  modifier: string | null;
+}
+
 export interface RouteResult {
   geometry: RouteGeometry;
   distanceMeters: number;
   durationSeconds: number;
+  steps?: RouteStep[];
 }
 
 // Wraps Mapbox's Directions API. "driving" is the closest available
@@ -21,16 +31,29 @@ export async function getRoute(from: LatLng, to: LatLng): Promise<RouteResult | 
   if (!MAPBOX_TOKEN) return null;
   try {
     const coords = `${from.lng},${from.lat};${to.lng},${to.lat}`;
-    const url = `https://api.mapbox.com/directions/v5/mapbox/driving/${coords}?geometries=geojson&overview=full&access_token=${MAPBOX_TOKEN}`;
+    const url = `https://api.mapbox.com/directions/v5/mapbox/driving/${coords}?geometries=geojson&overview=full&steps=true&access_token=${MAPBOX_TOKEN}`;
     const res = await fetch(url);
     if (!res.ok) return null;
     const data = await res.json();
     const route = data?.routes?.[0];
     if (!route?.geometry) return null;
+
+    const steps: RouteStep[] = ((route.legs ?? []) as any[])
+      .flatMap((leg: any) => (leg?.steps ?? []) as any[])
+      .map((s: any) => ({
+        instruction: String(s?.maneuver?.instruction ?? ""),
+        distanceMeters: Number(s?.distance ?? 0),
+        location: s?.maneuver?.location as [number, number],
+        type: String(s?.maneuver?.type ?? ""),
+        modifier: s?.maneuver?.modifier ? String(s.maneuver.modifier) : null,
+      }))
+      .filter((s: RouteStep) => Array.isArray(s.location) && s.location.length === 2);
+
     return {
       geometry: route.geometry,
       distanceMeters: route.distance,
       durationSeconds: route.duration,
+      steps,
     };
   } catch {
     return null;

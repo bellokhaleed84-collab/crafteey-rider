@@ -15,13 +15,14 @@ const OPTIONS: {
   {
     id: "in_app",
     label: "In-app navigation",
-    description: "Follow your route on the Crafteey map. Arrows show the way along each street.",
+    description:
+      "Tap the orange arrow during a delivery and the app guides you: the map follows you and the next turn shows at the top.",
     icon: Navigation,
   },
   {
     id: "google",
     label: "Google Maps",
-    description: "Use Google Maps for turn-by-turn directions. The Maps button on the map will be highlighted.",
+    description: "Tap the orange arrow during a delivery and Google Maps opens with directions to your next stop.",
     icon: MapIcon,
   },
 ];
@@ -67,8 +68,8 @@ export default function NavigationSection() {
       })}
 
       <p className="text-[11px] text-steel">
-        Whichever you pick, the round Maps button on the map opens Google Maps to your next stop. You can drag it
-        anywhere on the screen. Saved on this device.
+        The round pin button on the map always opens Google Maps, whichever you pick. You can drag it anywhere on
+        the screen. Saved on this device.
       </p>
     </div>
   );

@@ -19,7 +19,7 @@ import {
 } from "@/lib/directions";
 import { NAVIGATION_STAGES } from "@/lib/navigationStages";
 import { COURIER_STATUS } from "@/lib/constants";
-import { getGoogleMapsDirectionsUrl } from "@/lib/navigation";
+import { getGoogleMapsDirectionsUrl, getPreferGoogleMaps } from "@/lib/navigation";
 import { formatNaira } from "@/lib/format";
 
 interface ActiveRequest {
@@ -56,6 +56,8 @@ const ROUTE_REFRESH_MS = 20000;
 const DEVIATION_THRESHOLD_METERS = 60;
 // Close enough to a pickup/dropoff point to consider the rider "arrived".
 const ARRIVAL_THRESHOLD_METERS = 60;
+// Close enough to a turn to count it as done and show the next one.
+const STEP_PASS_METERS = 30;
 
 // --- Bottom sheet sizing ---
 const SHEET_PEEK_PX = 148;
@@ -72,6 +74,28 @@ type View = "card" | "payment" | "collected";
 
 function stopDrag(e: ReactPointerEvent<HTMLElement>) {
   e.stopPropagation();
+}
+
+// How far to turn the "up" arrow for each kind of turn.
+function turnRotation(modifier: string | null): number {
+  switch (modifier) {
+    case "slight right":
+      return 45;
+    case "right":
+      return 90;
+    case "sharp right":
+      return 135;
+    case "uturn":
+      return 180;
+    case "sharp left":
+      return -135;
+    case "left":
+      return -90;
+    case "slight left":
+      return -45;
+    default:
+      return 0;
+  }
 }
 
 export default function ActiveDeliveryPage() {
@@ -100,6 +124,15 @@ export default function ActiveDeliveryPage() {
   const [pickupToDropoffRoute, setPickupToDropoffRoute] = useState<RouteResult | null>(null);
 
   const [arrivalConfirmed, setArrivalConfirmed] = useState(false);
+
+  // --- In-app navigation ---
+  const [navigating, setNavigating] = useState(false);
+  const [recenterSignal, setRecenterSignal] = useState(0);
+  // Which turn is next, tied to the route it belongs to (a fresh route starts at turn 1).
+  const [stepState, setStepState] = useState<{ route: RouteResult | null; idx: number }>({
+    route: null,
+    idx: 1,
+  });
 
   // --- Bottom sheet state ---
   const [sheetExpanded, setSheetExpanded] = useState(false);
@@ -295,6 +328,22 @@ export default function ActiveDeliveryPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [geo.location?.lat, geo.location?.lng, destination?.lat, destination?.lng]);
 
+  // While navigating, move on to the next turn once the current one is passed.
+  const stepIdx = stepState.route === route ? stepState.idx : 1;
+  useEffect(() => {
+    if (!navigating || !route?.steps?.length || !geo.location) return;
+    const steps = route.steps;
+    let i = stepIdx;
+    while (
+      i < steps.length - 1 &&
+      distanceMeters(geo.location, { lat: steps[i].location[1], lng: steps[i].location[0] }) < STEP_PASS_METERS
+    ) {
+      i++;
+    }
+    if (i !== stepIdx || stepState.route !== route) setStepState({ route, idx: i });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [geo.location?.lat, geo.location?.lng, route, navigating]);
+
   const hasArrived =
     !!geo.location && !!destination && distanceMeters(geo.location, destination) <= ARRIVAL_THRESHOLD_METERS;
 
@@ -352,11 +401,41 @@ export default function ActiveDeliveryPage() {
     }
   }
 
+  // The orange arrow button follows the Navigation setting:
+  // Google Maps -> open Google Maps. In-app -> start in-app navigation.
+  function handleNavTap() {
+    if (!destination) return;
+    if (getPreferGoogleMaps()) {
+      window.open(getGoogleMapsDirectionsUrl(destination.lat, destination.lng), "_blank", "noopener,noreferrer");
+      return;
+    }
+    setNavigating(true);
+    setSheetExpanded(false);
+    setRecenterSignal((n) => n + 1);
+  }
+
   if (loading || !request || !stage) {
-    return <p className="p-4 text-sm text-steel">Loading...</p>;
+    return (
+      <div className="fixed inset-0 z-0 flex flex-col bg-slate-100">
+        <div className="flex-1 animate-pulse bg-slate-200" />
+        <div className="space-y-3 rounded-t-3xl bg-white p-5">
+          <div className="h-4 w-28 animate-pulse rounded bg-slate-200" />
+          <div className="h-3 w-40 animate-pulse rounded bg-slate-200" />
+          <div className="h-12 w-full animate-pulse rounded-xl bg-slate-200" />
+        </div>
+      </div>
+    );
   }
 
   const displayError = geo.error ?? geocodeError ?? error;
+
+  // --- Turn-by-turn banner data ---
+  const steps = route?.steps ?? [];
+  const curStep = steps.length > 0 ? steps[Math.min(stepIdx, steps.length - 1)] : null;
+  const toManeuverM =
+    curStep && geo.location
+      ? distanceMeters(geo.location, { lat: curStep.location[1], lng: curStep.location[0] })
+      : null;
 
   // --- Two-leg distance display ---
   const toPickupDistance = stage.destination === "pickup" ? route?.distanceMeters ?? null : null;
@@ -400,11 +479,62 @@ export default function ActiveDeliveryPage() {
           route={route?.geometry}
           followCourier
           recenterBottom={SHEET_PEEK_PX + 16}
+          recenterSignal={recenterSignal}
           className="h-full w-full"
         />
 
-        <div className="pointer-events-none absolute inset-x-0 top-0 z-10 flex items-start justify-between p-3">
-          {route ? (
+        {/* In-app navigation banner: next turn, distance to it, and End */}
+        {navigating && (
+          <div className="pointer-events-auto absolute inset-x-3 top-3 z-10 flex items-center gap-3 rounded-2xl bg-slate-900/95 p-3 text-white shadow-xl">
+            <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-brand-accent">
+              {curStep?.type === "arrive" ? (
+                <span className="text-xl">{"\uD83D\uDCCD"}</span>
+              ) : (
+                <svg
+                  viewBox="0 0 24 24"
+                  fill="currentColor"
+                  className="h-7 w-7"
+                  style={{ transform: `rotate(${turnRotation(curStep?.modifier ?? null)}deg)` }}
+                >
+                  <path d="M12 3l7 8h-4.5v10h-5V11H5z" />
+                </svg>
+              )}
+            </span>
+            <div className="min-w-0 flex-1">
+              {curStep ? (
+                <>
+                  <p className="truncate text-base font-extrabold leading-tight">
+                    {toManeuverM != null ? formatDistance(toManeuverM) : "\u2014"}
+                  </p>
+                  <p className="line-clamp-2 text-xs font-medium text-white/80">{curStep.instruction}</p>
+                  {route && (
+                    <p className="mt-0.5 text-[11px] text-white/60">
+                      {formatDuration(route.durationSeconds)} {"\u2022"} {formatDistance(route.distanceMeters)} left
+                    </p>
+                  )}
+                </>
+              ) : (
+                <div className="space-y-2">
+                  <div className="h-4 w-20 animate-pulse rounded bg-white/20" />
+                  <div className="h-3 w-40 animate-pulse rounded bg-white/20" />
+                </div>
+              )}
+            </div>
+            <button
+              type="button"
+              onClick={() => setNavigating(false)}
+              className="shrink-0 rounded-xl bg-white/15 px-4 py-3 text-sm font-bold"
+            >
+              End
+            </button>
+          </div>
+        )}
+
+        <div
+          className="pointer-events-none absolute inset-x-0 z-10 flex items-start justify-between p-3"
+          style={{ top: navigating ? 92 : 0 }}
+        >
+          {route && !navigating ? (
             <div className="pointer-events-auto rounded-xl bg-white/95 px-3 py-2 shadow">
               <p className="text-sm font-bold text-brand">{formatDuration(route.durationSeconds)}</p>
               <p className="text-xs text-steel">{formatDistance(route.distanceMeters)}</p>
@@ -420,24 +550,28 @@ export default function ActiveDeliveryPage() {
         </div>
 
         {hasArrived && !sheetExpanded && (
-          <div className="pointer-events-none absolute inset-x-3 top-16 z-10 rounded-lg bg-emerald-600 px-3 py-2 text-center text-sm font-semibold text-white shadow-lg">
+          <div
+            className="pointer-events-none absolute inset-x-3 z-10 rounded-lg bg-emerald-600 px-3 py-2 text-center text-sm font-semibold text-white shadow-lg"
+            style={{ top: navigating ? 148 : 64 }}
+          >
             {"\uD83D\uDCCD"} {stage.arrivedLabel}
           </div>
         )}
 
         {destination && !sheetExpanded && (
-          <a
-            href={getGoogleMapsDirectionsUrl(destination.lat, destination.lng)}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="absolute right-4 z-10 flex h-14 w-14 items-center justify-center rounded-full bg-brand-accent text-white shadow-lg transition-transform duration-150 active:scale-95"
+          <button
+            type="button"
+            onClick={handleNavTap}
+            className={`absolute right-4 z-10 flex h-14 w-14 items-center justify-center rounded-full bg-brand-accent text-white shadow-lg transition-transform duration-150 active:scale-95 ${
+              navigating ? "ring-4 ring-white/80" : ""
+            }`}
             style={{ bottom: SHEET_PEEK_PX + 16 }}
-            aria-label="Open turn-by-turn navigation"
+            aria-label="Start navigation"
           >
             <svg viewBox="0 0 24 24" fill="currentColor" className="h-6 w-6">
               <path d="M12 2L4.5 20.29a.5.5 0 00.72.63L12 17l6.78 3.92a.5.5 0 00.72-.63L12 2z" />
             </svg>
-          </a>
+          </button>
         )}
 
         {sheetExpanded && (
