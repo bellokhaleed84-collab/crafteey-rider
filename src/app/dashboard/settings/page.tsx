@@ -1,13 +1,31 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
-import { User } from "lucide-react";
+import { ChevronRight, User } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
-import { SETTINGS_SECTIONS } from "@/lib/settingsSections";
+import { SETTINGS_MENU } from "@/lib/settingsMenu";
 
 type Extra = { slug: string; title: string; description: string; icon: string; group: "core" | "more" };
+
+function Row({ href, icon, label, description }: { href: string; icon: ReactNode; label: string; description?: string }) {
+  return (
+    <Link
+      href={href}
+      className="flex min-h-[60px] items-center gap-3 border-t border-slate-100 px-4 py-3 first:border-t-0 active:bg-slate-50"
+    >
+      <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-slate-100 text-lg">
+        {icon}
+      </span>
+      <span className="min-w-0 flex-1">
+        <span className="block truncate text-sm font-semibold text-brand">{label}</span>
+        {description ? <span className="block truncate text-xs text-steel">{description}</span> : null}
+      </span>
+      <ChevronRight className="h-4 w-4 shrink-0 text-steel" />
+    </Link>
+  );
+}
 
 export default function SettingsPage() {
   const router = useRouter();
@@ -15,6 +33,7 @@ export default function SettingsPage() {
 
   const [name, setName] = useState<string | null>(null);
   const [phone, setPhone] = useState<string | null>(null);
+  const [profileLoaded, setProfileLoaded] = useState(false);
   const [extras, setExtras] = useState<Extra[]>([]);
 
   useEffect(() => {
@@ -28,7 +47,9 @@ export default function SettingsPage() {
           setPhone(json.courier.phone);
         }
       } catch {
-        // Non-fatal - the card just falls back to a generic label below.
+        // Non-fatal - the card falls back to a generic label.
+      } finally {
+        setProfileLoaded(true);
       }
     })();
   }, [getIdToken]);
@@ -50,91 +71,56 @@ export default function SettingsPage() {
     })();
   }, [getIdToken]);
 
-  const core = SETTINGS_SECTIONS.filter((s) => s.core);
-  // Profile is pulled out of the "more" list since it's featured above.
-  const more = SETTINGS_SECTIONS.filter((s) => !s.core && s.slug !== "profile");
-  const extraCore = extras.filter((e) => e.group === "core");
-  const extraMore = extras.filter((e) => e.group !== "core");
-
   return (
-    <div className="space-y-6">
+    <div className="space-y-5">
       <h1 className="text-lg font-bold text-brand">Settings</h1>
 
-      <Link
-        href="/dashboard/settings/profile"
-        className="flex items-center gap-4 rounded-2xl border border-slate-200 bg-white p-4"
-      >
-        <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-brand/10 text-brand">
-          <User className="h-6 w-6" />
-        </div>
-        <div className="min-w-0">
-          <p className="truncate text-sm font-bold text-brand">{name || "Your profile"}</p>
-          <p className="mt-0.5 text-xs text-steel">{phone || "View and edit your details"}</p>
-        </div>
-        <span className="ml-auto text-steel">{"\u2192"}</span>
-      </Link>
+      {/* Profile card */}
+      {profileLoaded ? (
+        <Link
+          href="/dashboard/settings/profile"
+          className="flex items-center gap-4 rounded-2xl border border-slate-200 bg-white p-4"
+        >
+          <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-full bg-sunshine text-brand">
+            <User className="h-7 w-7" />
+          </div>
+          <div className="min-w-0 flex-1">
+            <p className="truncate text-base font-bold text-brand">{name || "Your profile"}</p>
+            <p className="mt-0.5 truncate text-xs text-steel">{phone || "View and edit your details"}</p>
+          </div>
+          <ChevronRight className="h-5 w-5 shrink-0 text-steel" />
+        </Link>
+      ) : (
+        <div className="h-[88px] animate-pulse rounded-2xl bg-slate-200" />
+      )}
 
-      <div className="space-y-2">
-        {core.map((s) => (
-          <Link
-            key={s.slug}
-            href={`/dashboard/settings/${s.slug}`}
-            className="flex items-center gap-3 rounded-2xl border border-slate-200 bg-white p-4"
-          >
-            <span className="text-xl">{s.icon}</span>
-            <div>
-              <p className="text-sm font-semibold text-brand">{s.label}</p>
-              <p className="text-xs text-steel">{s.description}</p>
-            </div>
-          </Link>
-        ))}
-        {extraCore.map((s) => (
-          <Link
-            key={s.slug}
-            href={`/dashboard/settings/${s.slug}`}
-            className="flex items-center gap-3 rounded-2xl border border-slate-200 bg-white p-4"
-          >
-            <span className="text-xl">{s.icon}</span>
-            <div>
-              <p className="text-sm font-semibold text-brand">{s.title}</p>
-              {s.description && <p className="text-xs text-steel">{s.description}</p>}
-            </div>
-          </Link>
-        ))}
-      </div>
-
-      <div>
-        <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-400">More settings</p>
-        <div className="space-y-2">
-          {more.map((s) => (
-            <Link
-              key={s.slug}
-              href={`/dashboard/settings/${s.slug}`}
-              className="flex items-center gap-3 rounded-2xl border border-slate-200 bg-white p-3"
-            >
-              <span className="text-lg">{s.icon}</span>
-              <p className="text-sm font-medium text-brand">{s.label}</p>
-            </Link>
-          ))}
-          {extraMore.map((s) => (
-            <Link
-              key={s.slug}
-              href={`/dashboard/settings/${s.slug}`}
-              className="flex items-center gap-3 rounded-2xl border border-slate-200 bg-white p-3"
-            >
-              <span className="text-lg">{s.icon}</span>
-              <p className="text-sm font-medium text-brand">{s.title}</p>
-            </Link>
-          ))}
+      {SETTINGS_MENU.map((group) => (
+        <div key={group.title}>
+          <p className="mb-2 px-1 text-xs font-semibold uppercase tracking-wide text-slate-400">{group.title}</p>
+          <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white">
+            {group.items.map((s) => (
+              <Row key={s.slug} href={`/dashboard/settings/${s.slug}`} icon={s.icon} label={s.label} description={s.description} />
+            ))}
+            {group.title === "App" &&
+              extras.map((s) => (
+                <Row
+                  key={s.slug}
+                  href={`/dashboard/settings/${s.slug}`}
+                  icon={s.icon}
+                  label={s.title}
+                  description={s.description}
+                />
+              ))}
+          </div>
         </div>
-      </div>
+      ))}
 
       <button
         onClick={async () => {
           await signOut();
           router.replace("/login");
         }}
-        className="w-full rounded-xl border border-slate-200 bg-white py-3 text-sm font-semibold text-red-600"
+        className="w-full rounded-xl border border-slate-200 bg-white py-3.5 text-sm font-semibold text-red-600"
       >
         Log out
       </button>

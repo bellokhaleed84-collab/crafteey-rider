@@ -7,11 +7,9 @@ body {
   height: 100%;
 }
 
-/* Dark mode — global overrides so existing components don't need
+/* Dark mode - global overrides so existing components don't need
    dark: classes added one by one. Targets the utility classes already
-   used consistently across the app. If a specific element ever needs
-   to behave differently, add a dark: override directly on that
-   element — it'll win over these since it's more specific. */
+   used consistently across the app. */
 .dark body {
   background-color: #141414;
 }
@@ -30,11 +28,29 @@ body {
 }
 
 .dark .bg-slate-100 {
-  background-color: #202020;
+  background-color: #262626;
+}
+
+/* Loading placeholders (grey pulsing blocks) */
+.dark .bg-slate-200 {
+  background-color: #2c2c2c;
+}
+
+/* The grey "Go offline" style buttons */
+.dark .bg-slate-700 {
+  background-color: #3a3a3a;
 }
 
 .dark .border-slate-100,
 .dark .border-slate-200 {
+  border-color: #2b2b2b;
+}
+
+.dark .border-slate-300 {
+  border-color: #3a3a3a;
+}
+
+.dark .divide-slate-100 > :not([hidden]) ~ :not([hidden]) {
   border-color: #2b2b2b;
 }
 
@@ -44,6 +60,10 @@ body {
 
 .dark .text-steel {
   color: #a3a3a3;
+}
+
+.dark .text-slate-400 {
+  color: #8a8a8a;
 }
 
 .dark .text-slate-600,
@@ -56,16 +76,104 @@ body {
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.5);
 }
 
-/* Status colors (emerald/red/amber backgrounds) get darkened but keep
-   their hue, so success/error/warning stays recognizable. */
+/* Buttons that are dark navy in light mode would vanish on a black page.
+   In dark mode they turn light, with dark text, so they always show. */
+.dark .bg-brand {
+  background-color: #f3f1ea;
+}
+.dark .bg-brand.text-white,
+.dark .bg-brand .text-white {
+  color: #15181F;
+}
+
+/* Soft tints of the brand colour (icon circles, selected rows) */
+.dark .bg-brand\/5,
+.dark .bg-brand\/10 {
+  background-color: rgba(243, 241, 234, 0.1);
+}
+.dark .border-brand {
+  border-color: #f3f1ea;
+}
+
+/* Yellow circles and buttons keep dark text, never cream */
+.dark .bg-sunshine.text-brand,
+.dark .bg-sunshine .text-brand {
+  color: #15181F;
+}
+
+/* White pills floating over the map */
+.dark .bg-white\/90,
+.dark .bg-white\/95 {
+  background-color: rgba(28, 28, 28, 0.94);
+}
+
+/* Status colours: darkened backgrounds keep their hue, text is lightened */
 .dark .bg-emerald-50 {
-  background-color: rgba(16, 185, 129, 0.12);
+  background-color: rgba(16, 185, 129, 0.14);
 }
 .dark .bg-red-50 {
-  background-color: rgba(239, 68, 68, 0.12);
+  background-color: rgba(239, 68, 68, 0.14);
 }
 .dark .bg-amber-50 {
-  background-color: rgba(245, 158, 11, 0.12);
+  background-color: rgba(245, 158, 11, 0.14);
+}
+.dark .bg-orange-50 {
+  background-color: rgba(249, 115, 22, 0.14);
+}
+.dark .bg-blue-50,
+.dark .bg-blue-100 {
+  background-color: rgba(59, 130, 246, 0.16);
+}
+.dark .border-red-200,
+.dark .border-red-100 {
+  border-color: rgba(239, 68, 68, 0.35);
+}
+.dark .border-amber-200 {
+  border-color: rgba(245, 158, 11, 0.35);
+}
+.dark .border-orange-200 {
+  border-color: rgba(249, 115, 22, 0.35);
+}
+.dark .border-blue-200 {
+  border-color: rgba(59, 130, 246, 0.35);
+}
+.dark .border-emerald-200 {
+  border-color: rgba(16, 185, 129, 0.35);
+}
+.dark .text-emerald-700,
+.dark .text-emerald-600 {
+  color: #34d399;
+}
+.dark .text-amber-800,
+.dark .text-amber-700,
+.dark .text-amber-600 {
+  color: #fbbf24;
+}
+.dark .text-red-700,
+.dark .text-red-600 {
+  color: #f87171;
+}
+.dark .text-blue-700,
+.dark .text-blue-600 {
+  color: #60a5fa;
+}
+
+/* Home cards (peak hours etc.): title and message text per colour */
+.dark .text-orange-900,
+.dark .text-orange-800 {
+  color: #fdba74;
+}
+.dark .text-blue-900,
+.dark .text-blue-800 {
+  color: #93c5fd;
+}
+.dark .text-emerald-900,
+.dark .text-emerald-800 {
+  color: #6ee7b7;
+}
+.dark .text-red-900,
+.dark .text-red-800 {
+  color: #fca5a5;
 }
 
 @keyframes go-online-pulse {

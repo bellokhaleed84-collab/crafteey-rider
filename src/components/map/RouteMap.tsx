@@ -15,8 +15,10 @@ export interface LatLng {
 
 type Pt = [number, number];
 
-// The look from the tracking video: dark map, 3D buildings, glowing orange route.
-const MAP_STYLE = "mapbox://styles/mapbox/dark-v11";
+// Dark map in dark mode, normal street map in light mode. The map swaps
+// by itself when the rider changes Appearance in Settings.
+const DARK_STYLE = "mapbox://styles/mapbox/dark-v11";
+const LIGHT_STYLE = "mapbox://styles/mapbox/streets-v12";
 const ORANGE = "#FF7A1A";
 const ROUTE_SRC = "rider-route";
 const ARROW_IMAGE = "route-arrow";
@@ -24,6 +26,10 @@ const FOLLOW_ZOOM = 16.5;
 const FOLLOW_PITCH = 60;
 const PREVIEW_ZOOM = 15.5;
 const PREVIEW_PITCH = 45;
+
+function isDarkTheme(): boolean {
+  return typeof document !== "undefined" && document.documentElement.classList.contains("dark");
+}
 
 interface RouteMapProps {
   pickup?: LatLng | null;
@@ -139,7 +145,8 @@ function ensureArrowImage(map: mapboxgl.Map) {
 }
 
 // Runs on every style load, because a new style wipes custom layers.
-function ensureLayers(map: mapboxgl.Map) {
+function ensureLayers(map: mapboxgl.Map, dark: boolean) {
+  ensureArrowImage(map);
   try {
     if (!map.getLayer("3d-buildings") && map.getSource("composite")) {
       const layers = map.getStyle().layers ?? [];
@@ -153,10 +160,10 @@ function ensureLayers(map: mapboxgl.Map) {
           type: "fill-extrusion",
           minzoom: 14,
           paint: {
-            "fill-extrusion-color": "#232a3a",
+            "fill-extrusion-color": dark ? "#232a3a" : "#d9d5cc",
             "fill-extrusion-height": ["get", "height"],
             "fill-extrusion-base": ["get", "min_height"],
-            "fill-extrusion-opacity": 0.85,
+            "fill-extrusion-opacity": dark ? 0.85 : 0.7,
           },
         } as any,
         labelLayer?.id
@@ -185,7 +192,6 @@ function ensureLayers(map: mapboxgl.Map) {
         layout: { "line-cap": "round", "line-join": "round" },
         paint: { "line-color": ORANGE, "line-width": 6, "line-opacity": 1 },
       } as any);
-      ensureArrowImage(map);
       map.addLayer({
         id: "rider-route-arrows",
         type: "symbol",
@@ -294,9 +300,10 @@ export default function RouteMap({
     if (!containerRef.current || mapRef.current) return;
 
     const chase = followCourierRef.current;
+    let styleDark = isDarkTheme();
     const map = new mapboxgl.Map({
       container: containerRef.current,
-      style: MAP_STYLE,
+      style: styleDark ? DARK_STYLE : LIGHT_STYLE,
       center: [3.3792, 6.5244], // Lagos fallback
       zoom: 11,
       antialias: true,
@@ -315,6 +322,19 @@ export default function RouteMap({
         "bottom-right"
       );
     }
+
+    // Switch the map style when the rider changes light/dark in Settings.
+    const themeObserver = new MutationObserver(() => {
+      const dark = isDarkTheme();
+      if (dark === styleDark) return;
+      styleDark = dark;
+      try {
+        map.setStyle(dark ? DARK_STYLE : LIGHT_STYLE);
+      } catch {
+        // map is mid-teardown
+      }
+    });
+    themeObserver.observe(document.documentElement, { attributes: true, attributeFilter: ["class"] });
 
     // Keep the map sized right when its box changes (for example when a
     // request sheet slides in underneath it).
@@ -347,7 +367,7 @@ export default function RouteMap({
       loadedRef.current = true;
     });
     map.on("style.load", () => {
-      ensureLayers(map);
+      ensureLayers(map, styleDark);
       refreshLine();
     });
 
@@ -363,6 +383,7 @@ export default function RouteMap({
 
     return () => {
       const current = mapRef.current;
+      themeObserver.disconnect();
       resizeObserver?.disconnect();
       cancelAnimationFrame(animRef.current.raf);
       animRef.current.raf = 0;

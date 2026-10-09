@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Banknote, Clock, MapPin, MessageSquare, Package, ShieldCheck, ArrowRight } from "lucide-react";
+import { Banknote, Clock, MapPin, MessageSquare, Package, ShieldCheck, ArrowRight, ArrowLeft } from "lucide-react";
 import MapOrFallback from "@/components/map/MapOrFallback";
 import { useRiderStatus } from "@/contexts/RiderStatusContext";
 import { getRoute, type RouteGeometry } from "@/lib/directions";
@@ -192,11 +192,20 @@ export default function OnlineSearchPage() {
         />
 
         <div
-          className="pointer-events-none absolute inset-x-0 top-0 flex items-center justify-between px-4 pb-4"
+          className="pointer-events-none absolute inset-x-0 top-0 flex items-center gap-2 px-4 pb-4"
           style={{ paddingTop: "max(1rem, env(safe-area-inset-top))" }}
         >
-          <span className="flex items-center gap-1 rounded-full bg-white/90 px-3 py-2 text-xs font-semibold text-brand shadow">
-            <span className="h-2 w-2 rounded-full bg-emerald-500" />
+          {/* Back to the app. The rider stays online and keeps getting requests. */}
+          <button
+            type="button"
+            onClick={() => router.push("/dashboard")}
+            aria-label="Back to the app"
+            className="pointer-events-auto flex h-11 w-11 items-center justify-center rounded-full bg-white/95 text-brand shadow-lg active:scale-95"
+          >
+            <ArrowLeft className="h-5 w-5" />
+          </button>
+          <span className="flex items-center gap-2 rounded-full bg-white/95 px-4 py-2.5 text-sm font-extrabold text-brand shadow-lg">
+            <span className="h-2.5 w-2.5 rounded-full bg-emerald-500" />
             Online
           </span>
         </div>
@@ -376,7 +385,8 @@ export default function OnlineSearchPage() {
               <button
                 onClick={() => handleAccept(topRequest._id)}
                 disabled={acceptingId === topRequest._id}
-                className="relative flex w-full items-center justify-center gap-2 overflow-hidden rounded-2xl bg-sunshine py-4 text-base font-extrabold text-brand transition-transform duration-150 active:scale-[0.98] disabled:opacity-60"
+                className="relative flex w-full items-center justify-center gap-2 overflow-hidden rounded-2xl bg-sunshine py-4 text-base font-extrabold transition-transform duration-150 active:scale-[0.98] disabled:opacity-60"
+                style={{ color: "#15181F" }}
               >
                 {acceptingId !== topRequest._id && (
                   <span
