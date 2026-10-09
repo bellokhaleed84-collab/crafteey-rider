@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { Capacitor } from "@capacitor/core";
 
 export interface LatLng {
   lat: number;
@@ -10,13 +11,67 @@ export interface LatLng {
 export type GeoPermissionState = "unknown" | "granted" | "denied" | "prompt" | "unsupported";
 
 interface UseGeolocationOptions {
-  // Fires on every GPS tick — use to update map markers/UI immediately.
+  // Fires on every GPS tick - use to update map markers/UI immediately.
   onUpdate?: (coords: LatLng) => void;
-  // Fires at most once per throttleMs — use for anything hitting the network
+  // Fires at most once per throttleMs - use for anything hitting the network
   // (presence pings, location PATCH calls) so we're not spamming the API.
   onThrottledUpdate?: (coords: LatLng) => void;
   throttleMs?: number;
   enableHighAccuracy?: boolean;
+}
+
+// ---------------------------------------------------------------------
+// Inside the Android app, tracking runs as a native foreground service so
+// it keeps working with the screen locked or the app in the background.
+// It is shared: however many components call start(), only one native
+// tracker runs, and it stops when the last one stops.
+// ---------------------------------------------------------------------
+type PosListener = (lat: number, lng: number) => void;
+type ErrListener = (code: string | undefined) => void;
+
+const nativePosListeners = new Set<PosListener>();
+const nativeErrListeners = new Set<ErrListener>();
+let nativeRunning = false;
+let nativeQueue: Promise<void> = Promise.resolve();
+
+// Start and stop calls are queued so they can never overlap; each step
+// simply moves the tracker to whatever state is wanted at that moment.
+function syncNativeTracking() {
+  nativeQueue = nativeQueue
+    .then(async () => {
+      const want = nativePosListeners.size > 0;
+      if (want === nativeRunning) return;
+
+      const { BackgroundGeolocation } = await import("@capgo/background-geolocation");
+
+      if (want) {
+        await BackgroundGeolocation.start(
+          {
+            backgroundTitle: "Crafteey Rider",
+            backgroundMessage: "You are online and ready for deliveries.",
+            requestPermissions: true,
+            stale: false,
+            distanceFilter: 5,
+          },
+          (position, error) => {
+            if (error) {
+              nativeErrListeners.forEach((l) => l(error.code));
+              return;
+            }
+            if (position) {
+              nativePosListeners.forEach((l) => l(position.latitude, position.longitude));
+            }
+          }
+        );
+        nativeRunning = true;
+      } else {
+        await BackgroundGeolocation.stop();
+        nativeRunning = false;
+      }
+    })
+    .catch(() => {
+      nativeErrListeners.forEach((l) => l("START_FAILED"));
+    });
 }
 
 // Consolidates the watchPosition + permission + throttling logic that was
@@ -35,9 +90,10 @@ export function useGeolocation({
   const [watching, setWatching] = useState(false);
 
   const watchIdRef = useRef<number | null>(null);
+  const nativeHandlersRef = useRef<{ pos: PosListener; err: ErrListener } | null>(null);
   const lastThrottledRef = useRef<number>(0);
   // Keep the latest callbacks in refs so start()/stop() stay stable across
-  // renders — callers don't need to memoize onUpdate/onThrottledUpdate.
+  // renders - callers don't need to memoize onUpdate/onThrottledUpdate.
   const onUpdateRef = useRef(onUpdate);
   const onThrottledUpdateRef = useRef(onThrottledUpdate);
   onUpdateRef.current = onUpdate;
@@ -73,7 +129,30 @@ export function useGeolocation({
     };
   }, []);
 
+  const handlePosition = useCallback(
+    (lat: number, lng: number) => {
+      setPermissionState("granted");
+      const coords: LatLng = { lat, lng };
+      setLocation(coords);
+      onUpdateRef.current?.(coords);
+
+      const now = Date.now();
+      if (now - lastThrottledRef.current >= throttleMs) {
+        lastThrottledRef.current = now;
+        onThrottledUpdateRef.current?.(coords);
+      }
+    },
+    [throttleMs]
+  );
+
   const stop = useCallback(() => {
+    const native = nativeHandlersRef.current;
+    if (native) {
+      nativePosListeners.delete(native.pos);
+      nativeErrListeners.delete(native.err);
+      nativeHandlersRef.current = null;
+      syncNativeTracking();
+    }
     if (watchIdRef.current !== null) {
       navigator.geolocation.clearWatch(watchIdRef.current);
       watchIdRef.current = null;
@@ -82,6 +161,30 @@ export function useGeolocation({
   }, []);
 
   const start = useCallback(() => {
+    // Android app: native background tracking.
+    if (Capacitor.isNativePlatform()) {
+      if (nativeHandlersRef.current) return; // already tracking
+      setError(null);
+
+      const pos: PosListener = (lat, lng) => handlePosition(lat, lng);
+      const err: ErrListener = (code) => {
+        if (code === "NOT_AUTHORIZED") {
+          setPermissionState("denied");
+          setError("Location access was denied. Enable it in your device settings to go online.");
+        } else {
+          setError("Couldn't get your location. Check your GPS and try again.");
+        }
+      };
+
+      nativeHandlersRef.current = { pos, err };
+      nativePosListeners.add(pos);
+      nativeErrListeners.add(err);
+      syncNativeTracking();
+      setWatching(true);
+      return;
+    }
+
+    // Browser: normal watchPosition.
     if (!("geolocation" in navigator)) {
       setPermissionState("unsupported");
       setError("Location isn't supported on this device.");
@@ -91,18 +194,7 @@ export function useGeolocation({
 
     setError(null);
     watchIdRef.current = navigator.geolocation.watchPosition(
-      (pos) => {
-        setPermissionState("granted");
-        const coords: LatLng = { lat: pos.coords.latitude, lng: pos.coords.longitude };
-        setLocation(coords);
-        onUpdateRef.current?.(coords);
-
-        const now = Date.now();
-        if (now - lastThrottledRef.current >= throttleMs) {
-          lastThrottledRef.current = now;
-          onThrottledUpdateRef.current?.(coords);
-        }
-      },
+      (pos) => handlePosition(pos.coords.latitude, pos.coords.longitude),
       (err) => {
         if (err.code === err.PERMISSION_DENIED) {
           setPermissionState("denied");
@@ -110,7 +202,7 @@ export function useGeolocation({
         } else if (err.code === err.POSITION_UNAVAILABLE) {
           setError("Couldn't determine your location. Check your GPS or network connection.");
         } else if (err.code === err.TIMEOUT) {
-          setError("Location request timed out. Retrying…");
+          setError("Location request timed out. Retrying\u2026");
         } else {
           setError("Couldn't get your location.");
         }
@@ -118,10 +210,20 @@ export function useGeolocation({
       { enableHighAccuracy, maximumAge: 5000, timeout: 15000 }
     );
     setWatching(true);
-  }, [enableHighAccuracy, throttleMs]);
+  }, [enableHighAccuracy, handlePosition]);
+
+  // Opens the phone's location settings (Android app only).
+  const openSettings = useCallback(async () => {
+    try {
+      const { BackgroundGeolocation } = await import("@capgo/background-geolocation");
+      await BackgroundGeolocation.openSettings();
+    } catch {
+      // not in the Android app
+    }
+  }, []);
 
   // Always clear the watch on unmount, regardless of which page used it.
   useEffect(() => stop, [stop]);
 
-  return { location, permissionState, error, watching, start, stop };
+  return { location, permissionState, error, watching, start, stop, openSettings };
 }

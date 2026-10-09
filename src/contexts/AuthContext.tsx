@@ -18,6 +18,8 @@ import {
 } from "firebase/auth";
 import { auth } from "@/lib/firebase/clientApp";
 
+const PUSH_TOKEN_KEY = "crafteey_fcm_token";
+
 interface AuthContextValue {
   user: User | null;
   loading: boolean;
@@ -63,6 +65,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }
 
   async function signOut() {
+    // Stop this phone getting new-request pushes for the rider who is leaving.
+    try {
+      const pushToken = window.localStorage.getItem(PUSH_TOKEN_KEY);
+      const idToken = auth.currentUser ? await auth.currentUser.getIdToken() : null;
+      if (pushToken && idToken) {
+        await fetch("/api/couriers/push-token", {
+          method: "DELETE",
+          headers: { "Content-Type": "application/json", Authorization: "Bearer " + idToken },
+          body: JSON.stringify({ token: pushToken }),
+        });
+      }
+    } catch {
+      // never block logging out
+    }
     await firebaseSignOut(auth);
   }
 

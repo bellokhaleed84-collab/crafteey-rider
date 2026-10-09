@@ -9,14 +9,18 @@
         <item name="colorAccent">@color/colorAccent</item>
     </style>
 
+    <!-- Shown after the launch screen while the app loads: purple, never black -->
     <style name="AppTheme.NoActionBar" parent="Theme.AppCompat.DayNight.NoActionBar">
         <item name="windowActionBar">false</item>
         <item name="windowNoTitle">true</item>
         <item name="android:background">@null</item>
+        <item name="android:windowBackground">@color/crafteeySplashPurple</item>
     </style>
 
-
+    <!-- Android launch screen: plain purple, no icon, so it flows into the app splash -->
     <style name="AppTheme.NoActionBarLaunch" parent="Theme.SplashScreen">
-        <item name="android:background">@drawable/splash</item>
+        <item name="windowSplashScreenBackground">@color/crafteeySplashPurple</item>
+        <item name="windowSplashScreenAnimatedIcon">@drawable/splash_icon_empty</item>
+        <item name="android:background">@color/crafteeySplashPurple</item>
     </style>
 </resources>

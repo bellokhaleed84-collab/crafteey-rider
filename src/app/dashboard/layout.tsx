@@ -8,6 +8,7 @@ import BottomNav from "@/components/BottomNav";
 import TopBar from "@/components/TopBar";
 import IncomingRequestBanner from "@/components/IncomingRequestBanner";
 import ActiveDeliveryBar from "@/components/ActiveDeliveryBar";
+import BubbleSync from "@/components/BubbleSync";
 import { RiderStatusProvider } from "@/contexts/RiderStatusContext";
 
 // Full-screen routes render their own back arrow and chrome - they
@@ -78,6 +79,7 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
 
   return (
     <RiderStatusProvider>
+      <BubbleSync />
       <div className={`min-h-screen bg-concrete ${isFullscreen ? "" : "pb-20"}`}>
         {showTopBar && <TopBar />}
         {isFullscreen ? (

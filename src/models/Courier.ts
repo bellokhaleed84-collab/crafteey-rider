@@ -44,6 +44,10 @@ const CourierSchema = new Schema(
       default: null,
     },
 
+    // Phone push tokens (Firebase Cloud Messaging). A rider can have a few
+    // phones; the newest 5 are kept.
+    fcmTokens: { type: [String], default: [] },
+
     // Earnings system -
     // Direct Rides bookings: rider collects the full fare in cash from
     // the client, so the platform's 20% commission accumulates here as

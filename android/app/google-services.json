@@ -1,0 +1,39 @@
+{
+  "project_info": {
+    "project_number": "63869717210",
+    "project_id": "crafteey",
+    "storage_bucket": "crafteey.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:63869717210:android:9d9478dce31bafdc3833e3",
+        "android_client_info": {
+          "package_name": "com.crafteey.rider"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "63869717210-if06e1ndlvo3abp4huer8pktb28l7v73.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCn-kgyt3kwoHvIF-vTwq0SEVZiEdp8aow"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "63869717210-if06e1ndlvo3abp4huer8pktb28l7v73.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

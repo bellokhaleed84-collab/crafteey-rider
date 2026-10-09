@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import "./splash.css";
 
 interface SplashScreenProps {
   onFinished?: () => void;
@@ -10,6 +11,9 @@ interface SplashScreenProps {
 
 const EXIT_MS = 250;
 
+// Every starting style is inline on purpose: the purple screen and the small
+// logo are correct from the very first paint, even before any stylesheet or
+// script has loaded. The CSS file only adds the animations.
 export default function SplashScreen({ onFinished, introMs = 4500, ready = true }: SplashScreenProps) {
   const [introDone, setIntroDone] = useState(false);
   const [exiting, setExiting] = useState(false);
@@ -28,9 +32,45 @@ export default function SplashScreen({ onFinished, introMs = 4500, ready = true 
   }, [introDone, ready, exiting, onFinished]);
 
   return (
-    <div className={`splash-root ${exiting ? "splash-exiting" : ""}`}>
-      <div className="splash-stack">
-        <svg className="splash-mark" viewBox="225 245 575 530" aria-hidden="true">
+    <div
+      style={{
+        position: "fixed",
+        top: 0,
+        right: 0,
+        bottom: 0,
+        left: 0,
+        zIndex: 9999,
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        background: "radial-gradient(ellipse at 50% 40%, #4300b8 0%, #3f04ac 55%, #2e0086 100%)",
+        backgroundColor: "#3f04ac",
+        overflow: "hidden",
+        opacity: exiting ? 0 : 1,
+        pointerEvents: exiting ? "none" : "auto",
+        transition: `opacity ${EXIT_MS}ms ease-in`,
+      }}
+    >
+      <div
+        style={{
+          display: "flex",
+          flexDirection: "column",
+          alignItems: "center",
+          transform: "translateY(-4vh)",
+        }}
+      >
+        <svg
+          className="splash-mark"
+          viewBox="225 245 575 530"
+          aria-hidden="true"
+          style={{
+            width: "min(24vw, 120px)",
+            height: "auto",
+            display: "block",
+            opacity: 0,
+            transform: "scale(0.7)",
+          }}
+        >
           <path
             fill="#ffffff"
             d="M490 250H735Q745 250 745 260V382H490A130 130 0 0 0 490 642H745V760Q745 770 735 770H490A260 260 0 0 1 490 250Z"
@@ -42,85 +82,38 @@ export default function SplashScreen({ onFinished, introMs = 4500, ready = true 
           </g>
         </svg>
 
-        <div className="splash-word">crafteey</div>
-        <div className="splash-sub">riders</div>
+        <div
+          className="splash-word"
+          style={{
+            marginTop: "7vh",
+            fontFamily: "var(--font-inter), sans-serif",
+            fontWeight: 600,
+            fontSize: "min(9.5vw, 40px)",
+            letterSpacing: "0.01em",
+            color: "#ffffff",
+            opacity: 0,
+            transform: "translateY(8px)",
+          }}
+        >
+          crafteey
+        </div>
+        <div
+          className="splash-sub"
+          style={{
+            marginTop: 4,
+            fontFamily: "var(--font-inter), sans-serif",
+            fontWeight: 400,
+            fontSize: "min(4.6vw, 18px)",
+            letterSpacing: "0.3em",
+            paddingLeft: "0.3em",
+            color: "rgba(255, 255, 255, 0.85)",
+            opacity: 0,
+            transform: "translateY(8px)",
+          }}
+        >
+          riders
+        </div>
       </div>
-
-      <style jsx>{`
-        .splash-root {
-          position: fixed;
-          inset: 0;
-          z-index: 9999;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          background: radial-gradient(ellipse at 50% 40%, #4300b8 0%, #3f04ac 55%, #2e0086 100%);
-          overflow: hidden;
-          opacity: 1;
-          transition: opacity ${EXIT_MS}ms ease-in;
-        }
-
-        .splash-exiting {
-          opacity: 0;
-          pointer-events: none;
-        }
-
-        .splash-stack {
-          display: flex;
-          flex-direction: column;
-          align-items: center;
-          transform: translateY(-4vh);
-        }
-
-        .splash-mark {
-          width: min(24vw, 120px);
-          height: auto;
-          opacity: 0;
-          transform: scale(0.7);
-          animation:
-            splash-mark-in 0.7s ease-out 0.5s forwards,
-            splash-glow 1.8s ease-in-out 2.2s infinite alternate;
-        }
-
-        .splash-word {
-          margin-top: 7vh;
-          font-family: var(--font-inter), sans-serif;
-          font-weight: 600;
-          font-size: min(9.5vw, 40px);
-          letter-spacing: 0.01em;
-          color: #ffffff;
-          opacity: 0;
-          transform: translateY(8px);
-          animation: splash-rise 0.6s ease-out 1.2s forwards;
-        }
-
-        .splash-sub {
-          margin-top: 4px;
-          font-family: var(--font-inter), sans-serif;
-          font-weight: 400;
-          font-size: min(4.6vw, 18px);
-          letter-spacing: 0.3em;
-          padding-left: 0.3em;
-          color: rgba(255, 255, 255, 0.85);
-          opacity: 0;
-          transform: translateY(8px);
-          animation: splash-rise 0.6s ease-out 1.7s forwards;
-        }
-
-        @keyframes splash-mark-in {
-          from { opacity: 0; transform: scale(0.7); }
-          to { opacity: 1; transform: scale(1); }
-        }
-
-        @keyframes splash-rise {
-          to { opacity: 1; transform: translateY(0); }
-        }
-
-        @keyframes splash-glow {
-          from { filter: drop-shadow(0 0 0 rgba(255, 180, 0, 0)); }
-          to { filter: drop-shadow(0 0 16px rgba(255, 180, 0, 0.45)); }
-        }
-      `}</style>
     </div>
   );
 }

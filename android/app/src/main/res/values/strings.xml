@@ -4,4 +4,9 @@
     <string name="title_activity_main">Crafteey Rider</string>
     <string name="package_name">com.crafteey.rider</string>
     <string name="custom_url_scheme">com.crafteey.rider</string>
+
+    <!-- Tracking notification (shown while the rider is online) -->
+    <string name="capacitor_background_geolocation_notification_channel_name">Rider tracking</string>
+    <string name="capacitor_background_geolocation_notification_icon">drawable/ic_tracking</string>
+    <string name="capacitor_background_geolocation_notification_color">#FFC400</string>
 </resources>
