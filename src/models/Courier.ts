@@ -11,6 +11,10 @@ const CourierSchema = new Schema(
     name: { type: String, required: true },
     phone: { type: String, required: true },
 
+    // Which of the 10 built-in avatars the rider picked ("a1" to "a10").
+    // Empty means none picked yet.
+    avatarId: { type: String, default: "" },
+
     vehicleType: { type: String, enum: VEHICLE_TYPES, required: true },
     vehiclePlate: { type: String, default: "" },
 

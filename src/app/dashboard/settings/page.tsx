@@ -3,9 +3,10 @@
 import Link from "next/link";
 import { useEffect, useState, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
-import { ChevronRight, User } from "lucide-react";
+import { ChevronRight } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { SETTINGS_MENU } from "@/lib/settingsMenu";
+import Avatar from "@/components/Avatar";
 
 type Extra = { slug: string; title: string; description: string; icon: string; group: "core" | "more" };
 
@@ -33,6 +34,7 @@ export default function SettingsPage() {
 
   const [name, setName] = useState<string | null>(null);
   const [phone, setPhone] = useState<string | null>(null);
+  const [avatarId, setAvatarId] = useState<string>("");
   const [profileLoaded, setProfileLoaded] = useState(false);
   const [extras, setExtras] = useState<Extra[]>([]);
 
@@ -45,6 +47,7 @@ export default function SettingsPage() {
         if (res.ok && json.courier) {
           setName(json.courier.name);
           setPhone(json.courier.phone);
+          setAvatarId(json.courier.avatarId || "");
         }
       } catch {
         // Non-fatal - the card falls back to a generic label.
@@ -81,9 +84,7 @@ export default function SettingsPage() {
           href="/dashboard/settings/profile"
           className="flex items-center gap-4 rounded-2xl border border-slate-200 bg-white p-4"
         >
-          <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-full bg-sunshine text-brand">
-            <User className="h-7 w-7" />
-          </div>
+          <Avatar avatarId={avatarId} className="h-14 w-14" />
           <div className="min-w-0 flex-1">
             <p className="truncate text-base font-bold text-brand">{name || "Your profile"}</p>
             <p className="mt-0.5 truncate text-xs text-steel">{phone || "View and edit your details"}</p>
