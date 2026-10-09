@@ -7,12 +7,15 @@ import { User } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { SETTINGS_SECTIONS } from "@/lib/settingsSections";
 
+type Extra = { slug: string; title: string; description: string; icon: string; group: "core" | "more" };
+
 export default function SettingsPage() {
   const router = useRouter();
   const { signOut, getIdToken } = useAuth();
 
   const [name, setName] = useState<string | null>(null);
   const [phone, setPhone] = useState<string | null>(null);
+  const [extras, setExtras] = useState<Extra[]>([]);
 
   useEffect(() => {
     (async () => {
@@ -25,7 +28,24 @@ export default function SettingsPage() {
           setPhone(json.courier.phone);
         }
       } catch {
-        // Non-fatal — the card just falls back to a generic label below.
+        // Non-fatal - the card just falls back to a generic label below.
+      }
+    })();
+  }, [getIdToken]);
+
+  // Extra sections the admin added. If this fails, the built-in list still shows.
+  useEffect(() => {
+    (async () => {
+      try {
+        const token = await getIdToken();
+        const res = await fetch("/api/rider-content/sections", {
+          headers: { Authorization: `Bearer ${token}` },
+          cache: "no-store",
+        });
+        const json = await res.json().catch(() => ({}));
+        if (res.ok && Array.isArray(json.sections)) setExtras(json.sections);
+      } catch {
+        // Non-fatal.
       }
     })();
   }, [getIdToken]);
@@ -33,6 +53,8 @@ export default function SettingsPage() {
   const core = SETTINGS_SECTIONS.filter((s) => s.core);
   // Profile is pulled out of the "more" list since it's featured above.
   const more = SETTINGS_SECTIONS.filter((s) => !s.core && s.slug !== "profile");
+  const extraCore = extras.filter((e) => e.group === "core");
+  const extraMore = extras.filter((e) => e.group !== "core");
 
   return (
     <div className="space-y-6">
@@ -49,7 +71,7 @@ export default function SettingsPage() {
           <p className="truncate text-sm font-bold text-brand">{name || "Your profile"}</p>
           <p className="mt-0.5 text-xs text-steel">{phone || "View and edit your details"}</p>
         </div>
-        <span className="ml-auto text-steel">→</span>
+        <span className="ml-auto text-steel">{"\u2192"}</span>
       </Link>
 
       <div className="space-y-2">
@@ -66,6 +88,19 @@ export default function SettingsPage() {
             </div>
           </Link>
         ))}
+        {extraCore.map((s) => (
+          <Link
+            key={s.slug}
+            href={`/dashboard/settings/${s.slug}`}
+            className="flex items-center gap-3 rounded-2xl border border-slate-200 bg-white p-4"
+          >
+            <span className="text-xl">{s.icon}</span>
+            <div>
+              <p className="text-sm font-semibold text-brand">{s.title}</p>
+              {s.description && <p className="text-xs text-steel">{s.description}</p>}
+            </div>
+          </Link>
+        ))}
       </div>
 
       <div>
@@ -79,6 +114,16 @@ export default function SettingsPage() {
             >
               <span className="text-lg">{s.icon}</span>
               <p className="text-sm font-medium text-brand">{s.label}</p>
+            </Link>
+          ))}
+          {extraMore.map((s) => (
+            <Link
+              key={s.slug}
+              href={`/dashboard/settings/${s.slug}`}
+              className="flex items-center gap-3 rounded-2xl border border-slate-200 bg-white p-3"
+            >
+              <span className="text-lg">{s.icon}</span>
+              <p className="text-sm font-medium text-brand">{s.title}</p>
             </Link>
           ))}
         </div>

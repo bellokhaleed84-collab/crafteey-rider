@@ -1,10 +1,13 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { ChevronDown } from "lucide-react";
+import { useAuth } from "@/contexts/AuthContext";
+import { parseSections, type RichSection } from "@/lib/richText";
+import RichBlocks from "@/components/settings/RichBlocks";
 
-// Starter text. This will be managed from the admin app later.
-const TERMS: { title: string; body: string[] }[] = [
+// Starter text, shown only when the admin has not saved rider terms yet (or the app is offline).
+const STARTER: { title: string; body: string[] }[] = [
   {
     title: "About these terms",
     body: [
@@ -57,15 +60,11 @@ const TERMS: { title: string; body: string[] }[] = [
   },
   {
     title: "Suspension",
-    body: [
-      "We may suspend your account for unpaid debt, unsafe behaviour, fraud, or repeated complaints.",
-    ],
+    body: ["We may suspend your account for unpaid debt, unsafe behaviour, fraud, or repeated complaints."],
   },
   {
     title: "Changes to these terms",
-    body: [
-      "We may update these terms from time to time. Using the app after a change means you accept it.",
-    ],
+    body: ["We may update these terms from time to time. Using the app after a change means you accept it."],
   },
   {
     title: "Questions",
@@ -73,32 +72,63 @@ const TERMS: { title: string; body: string[] }[] = [
   },
 ];
 
+const FALLBACK: RichSection[] = parseSections(
+  STARTER.map((t, i) => `# ${i + 1}. ${t.title}\n${t.body.join("\n\n")}`).join("\n\n")
+);
+
 export default function LegalSection() {
+  const { getIdToken } = useAuth();
+  const [sections, setSections] = useState<RichSection[] | null>(null);
   const [open, setOpen] = useState<number | null>(0);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const token = await getIdToken();
+        const res = await fetch("/api/rider-content/terms", {
+          headers: { Authorization: `Bearer ${token}` },
+          cache: "no-store",
+        });
+        const d = await res.json().catch(() => ({}));
+        const parsed = res.ok && typeof d.body === "string" ? parseSections(d.body) : [];
+        if (!cancelled) setSections(parsed.length > 0 ? parsed : FALLBACK);
+      } catch {
+        if (!cancelled) setSections(FALLBACK);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [getIdToken]);
+
+  if (!sections) {
+    return (
+      <div className="space-y-2" aria-busy="true">
+        {[0, 1, 2, 3].map((i) => (
+          <div key={i} className="h-14 animate-pulse rounded-2xl bg-slate-200" />
+        ))}
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-2">
-      {TERMS.map((t, i) => (
-        <div key={t.title} className="rounded-2xl border border-slate-200 bg-white p-4">
+      {sections.map((s, i) => (
+        <div key={i} className="rounded-2xl border border-slate-200 bg-white p-4">
           <button
             type="button"
             onClick={() => setOpen(open === i ? null : i)}
             className="flex min-h-[28px] w-full items-center justify-between gap-3 text-left"
           >
-            <p className="text-sm font-semibold text-brand">
-              {i + 1}. {t.title}
-            </p>
+            <p className="text-sm font-semibold text-brand">{s.title || "Notes"}</p>
             <ChevronDown
               className={`h-4 w-4 shrink-0 text-steel transition-transform ${open === i ? "rotate-180" : ""}`}
             />
           </button>
           {open === i && (
-            <div className="mt-2 space-y-2">
-              {t.body.map((line) => (
-                <p key={line} className="text-xs leading-relaxed text-steel">
-                  {line}
-                </p>
-              ))}
+            <div className="mt-2">
+              <RichBlocks blocks={s.blocks} />
             </div>
           )}
         </div>

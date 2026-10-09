@@ -2,9 +2,10 @@
 
 import { useRouter } from "next/navigation";
 import MapOrFallback from "@/components/map/MapOrFallback";
+import HomeCards from "@/components/HomeCards";
 import { useRiderStatus } from "@/contexts/RiderStatusContext";
 
-// Permanent base screen — the online/offline toggle lives here. Going
+// Permanent base screen - the online/offline toggle lives here. Going
 // online now takes the rider straight into the search view; tapping the
 // map box does the same thing once already online, so both paths lead to
 // the same place.
@@ -82,7 +83,7 @@ export default function DashboardHomePage() {
             !isOnline && !togglingOnline ? "go-online-pulse 2.2s ease-in-out infinite" : "none",
         }}
       >
-        {togglingOnline ? "Please wait…" : isOnline ? "Go offline" : "Go online"}
+        {togglingOnline ? "Please wait..." : isOnline ? "Go offline" : "Go online"}
       </button>
 
       {permissionState === "denied" && (
@@ -95,13 +96,8 @@ export default function DashboardHomePage() {
         <p className="text-sm text-red-600">{geoError}</p>
       )}
 
-      <div className="rounded-2xl border border-slate-200 bg-white p-4">
-        <p className="text-sm font-semibold text-brand">Peak hours</p>
-        <p className="mt-1 text-xs text-steel">
-          Demand near you is usually highest in the evenings. Go online to
-          start seeing live delivery requests.
-        </p>
-      </div>
+      {/* Cards you control from crafteey-admin > Rider Home cards */}
+      <HomeCards />
     </div>
   );
 }

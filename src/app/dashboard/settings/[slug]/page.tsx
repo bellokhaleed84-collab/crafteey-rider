@@ -4,6 +4,7 @@ import { useParams } from "next/navigation";
 import type { ComponentType } from "react";
 import { getSettingsSection } from "@/lib/settingsSections";
 import SettingsPageShell from "@/components/settings/SettingsPageShell";
+import ExtraSection from "@/components/settings/ExtraSection";
 
 import AvailabilitySection from "@/components/settings/Availabilitysection";
 import DeliveryRequestsSection from "@/components/settings/Deliveryrequestssection";
@@ -21,7 +22,7 @@ import PromotionsSection from "@/components/settings/PromotionsSection";
 import LegalSection from "@/components/settings/LegalSection";
 import AboutSection from "@/components/settings/AboutSection";
 
-// Keyed by slug — must match SETTINGS_SECTIONS in lib/settingsSections.ts.
+// Keyed by slug - must match SETTINGS_SECTIONS in lib/settingsSections.ts.
 const SECTION_COMPONENTS: Record<string, ComponentType> = {
   availability: AvailabilitySection,
   "delivery-requests": DeliveryRequestsSection,
@@ -46,14 +47,8 @@ export default function SettingsDetailPage() {
   const meta = getSettingsSection(slug);
   const Section = SECTION_COMPONENTS[slug];
 
-  if (!meta || !Section) {
-    return (
-      <div className="space-y-4">
-        <h1 className="text-lg font-bold text-brand">Not found</h1>
-        <p className="text-sm text-steel">This settings page doesn't exist.</p>
-      </div>
-    );
-  }
+  // Not a built-in section: it may be one the admin added.
+  if (!meta || !Section) return <ExtraSection slug={slug} />;
 
   return (
     <SettingsPageShell title={meta.label}>
