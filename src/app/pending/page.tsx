@@ -1,15 +1,32 @@
 "use client";
 
+import { useRouter } from "next/navigation";
+import { useAuth } from "@/contexts/AuthContext";
+import { AuthShell, BrandLockup, OutlineButton } from "@/components/auth/AuthUI";
+
 export default function PendingPage() {
+  const router = useRouter();
+  const { signOut } = useAuth();
+
+  async function handleLogout() {
+    await signOut();
+    router.replace("/login");
+  }
+
   return (
-    <div className="mx-auto flex min-h-screen max-w-sm flex-col items-center justify-center px-6 text-center">
-      <div className="rounded-2xl border border-amber-200 bg-amber-50 p-6">
-        <h1 className="text-lg font-bold text-amber-900">Application under review</h1>
-        <p className="mt-2 text-sm text-amber-700">
-          Thanks for signing up. We're verifying your details — this usually doesn't take long.
-          You'll be able to log in and start accepting requests once you're approved.
-        </p>
+    <AuthShell>
+      <div className="flex flex-1 flex-col items-center justify-center text-center">
+        <BrandLockup markWidth={52} />
+        <div className="mt-8 rounded-2xl border border-white/20 bg-white/[0.08] p-6">
+          <h1 className="text-lg font-bold">Application under review</h1>
+          <p className="mt-2 text-sm text-white/80">
+            Thanks for signing up. We&apos;re verifying your details. This usually doesn&apos;t take
+            long. You&apos;ll be able to log in and start accepting requests once you&apos;re
+            approved.
+          </p>
+        </div>
       </div>
-    </div>
+      <OutlineButton onClick={handleLogout}>Log out</OutlineButton>
+    </AuthShell>
   );
 }

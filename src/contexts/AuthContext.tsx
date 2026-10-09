@@ -10,6 +10,8 @@ import {
 import {
   createUserWithEmailAndPassword,
   onAuthStateChanged,
+  sendPasswordResetEmail,
+  signInWithCustomToken,
   signInWithEmailAndPassword,
   signOut as firebaseSignOut,
   type User,
@@ -21,6 +23,8 @@ interface AuthContextValue {
   loading: boolean;
   signUp: (email: string, password: string) => Promise<User>;
   signIn: (email: string, password: string) => Promise<User>;
+  signInWithToken: (token: string) => Promise<User>;
+  resetPassword: (email: string) => Promise<void>;
   signOut: () => Promise<void>;
   getIdToken: () => Promise<string | null>;
 }
@@ -49,6 +53,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return cred.user;
   }
 
+  async function signInWithToken(token: string) {
+    const cred = await signInWithCustomToken(auth, token);
+    return cred.user;
+  }
+
+  async function resetPassword(email: string) {
+    await sendPasswordResetEmail(auth, email);
+  }
+
   async function signOut() {
     await firebaseSignOut(auth);
   }
@@ -59,7 +72,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }
 
   return (
-    <AuthContext.Provider value={{ user, loading, signUp, signIn, signOut, getIdToken }}>
+    <AuthContext.Provider
+      value={{ user, loading, signUp, signIn, signInWithToken, resetPassword, signOut, getIdToken }}
+    >
       {children}
     </AuthContext.Provider>
   );

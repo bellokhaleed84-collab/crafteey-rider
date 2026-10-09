@@ -1,26 +1,60 @@
 "use client";
 
-import { useState, type FormEvent } from "react";
+import { useEffect, useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
+import { Check, Eye, EyeOff, Lock, Phone } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { COURIER_ACCOUNT_STATUS, REQUIRE_COURIER_APPROVAL } from "@/lib/constants";
+import {
+  AuthShell,
+  BrandLockup,
+  ErrorText,
+  Field,
+  OutlineButton,
+  PrimaryButton,
+} from "@/components/auth/AuthUI";
 
 export default function LoginPage() {
   const router = useRouter();
-  const { signIn, getIdToken } = useAuth();
+  const { signIn, signInWithToken, resetPassword, getIdToken } = useAuth();
 
-  const [email, setEmail] = useState("");
+  const [identifier, setIdentifier] = useState("");
   const [password, setPassword] = useState("");
+  const [showPw, setShowPw] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [info, setInfo] = useState<string | null>(null);
+  const [welcome, setWelcome] = useState(false);
+
+  useEffect(() => {
+    if (!welcome) return;
+    const t = setTimeout(() => router.replace("/dashboard"), 1600);
+    return () => clearTimeout(t);
+  }, [welcome, router]);
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
     setError(null);
+    setInfo(null);
     setSubmitting(true);
 
     try {
-      await signIn(email, password);
+      const id = identifier.trim();
+
+      if (id.includes("@")) {
+        await signIn(id, password);
+      } else {
+        const loginRes = await fetch("/api/couriers/login", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ identifier: id, password }),
+        });
+        const loginData = await loginRes.json().catch(() => ({}));
+        if (!loginRes.ok || !loginData.token) {
+          throw new Error(loginData.error || "Wrong phone number or password.");
+        }
+        await signInWithToken(loginData.token);
+      }
 
       const token = await getIdToken();
       const res = await fetch("/api/couriers/me", {
@@ -35,9 +69,8 @@ export default function LoginPage() {
       const data = await res.json();
 
       if (!data.courier) {
-        // Signed in but never finished registration — send them back to
-        // complete their profile rather than dropping them somewhere
-        // broken.
+        // Signed in but never finished registration - send them back to
+        // complete their profile.
         router.push("/register");
         return;
       }
@@ -46,62 +79,127 @@ export default function LoginPage() {
         !REQUIRE_COURIER_APPROVAL ||
         data.courier.status === COURIER_ACCOUNT_STATUS.APPROVED
       ) {
-        router.push("/dashboard");
+        setWelcome(true);
       } else {
         router.push("/pending");
       }
     } catch (err: any) {
-      setError(err.message || "Couldn't log in. Check your details and try again.");
+      const code = err?.code as string | undefined;
+      if (
+        code === "auth/invalid-credential" ||
+        code === "auth/wrong-password" ||
+        code === "auth/user-not-found" ||
+        code === "auth/invalid-email"
+      ) {
+        setError("Wrong email or password.");
+      } else if (code === "auth/too-many-requests") {
+        setError("Too many tries. Wait a few minutes and try again.");
+      } else {
+        setError(err?.message || "Couldn't log in. Check your details and try again.");
+      }
     } finally {
       setSubmitting(false);
     }
   }
 
-  return (
-    <div className="mx-auto flex min-h-screen max-w-sm flex-col justify-center px-6 py-10">
-      <h1 className="text-2xl font-bold text-brand">Rider Log In</h1>
-      <p className="mt-1 text-sm text-steel">Welcome back.</p>
+  async function handleForgot() {
+    setError(null);
+    setInfo(null);
+    const id = identifier.trim();
+    if (!id.includes("@")) {
+      setError("Type your email address above, then tap Forgot Password.");
+      return;
+    }
+    try {
+      await resetPassword(id);
+      setInfo("Password reset link sent. Check your email.");
+    } catch {
+      setError("Couldn't send the reset email. Check the address and try again.");
+    }
+  }
 
-      <form onSubmit={handleSubmit} className="mt-6 space-y-4">
-        <div>
-          <label className="mb-1 block text-xs font-semibold text-steel">Email</label>
-          <input
-            required
-            type="email"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3.5 py-2.5 text-sm outline-none focus:border-brand-accent focus:ring-2 focus:ring-brand-accent/30"
-          />
+  if (welcome) {
+    return (
+      <AuthShell>
+        <div className="flex flex-1 flex-col items-center justify-center text-center">
+          <BrandLockup markWidth={52} />
+          <div className="mt-8 flex h-14 w-14 items-center justify-center rounded-full bg-[#16a34a]">
+            <Check size={30} strokeWidth={3} className="text-white" />
+          </div>
+          <h1 className="mt-5 text-2xl font-bold">Welcome Back!</h1>
+          <p className="mt-2 text-sm text-white/80">You&apos;re all set. Let&apos;s get you delivering.</p>
+        </div>
+        <PrimaryButton onClick={() => router.replace("/dashboard")}>Go to Dashboard</PrimaryButton>
+      </AuthShell>
+    );
+  }
+
+  return (
+    <AuthShell>
+      <div className="flex flex-1 flex-col">
+        <div className="pt-4">
+          <BrandLockup markWidth={48} />
         </div>
 
-        <div>
-          <label className="mb-1 block text-xs font-semibold text-steel">Password</label>
-          <input
+        <h1 className="mt-8 text-2xl font-bold">Welcome Back</h1>
+        <p className="mt-1 text-sm text-white/80">Log in to your Crafteey Riders account.</p>
+
+        <form onSubmit={handleSubmit} className="mt-6 space-y-3.5">
+          <Field
+            label="Phone Number or Email"
+            icon={<Phone size={20} />}
+            placeholder="Enter your phone number or email"
+            autoComplete="username"
+            autoCapitalize="none"
             required
-            type="password"
+            value={identifier}
+            onChange={(e) => setIdentifier(e.target.value)}
+          />
+          <Field
+            label="Password"
+            icon={<Lock size={20} />}
+            placeholder="Enter your password"
+            type={showPw ? "text" : "password"}
+            autoComplete="current-password"
+            required
             value={password}
             onChange={(e) => setPassword(e.target.value)}
-            className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3.5 py-2.5 text-sm outline-none focus:border-brand-accent focus:ring-2 focus:ring-brand-accent/30"
+            right={
+              <button
+                type="button"
+                onClick={() => setShowPw(!showPw)}
+                aria-label={showPw ? "Hide password" : "Show password"}
+                className="shrink-0 text-white/80"
+              >
+                {showPw ? <EyeOff size={20} /> : <Eye size={20} />}
+              </button>
+            }
           />
+
+          <div className="text-right">
+            <button
+              type="button"
+              onClick={handleForgot}
+              className="text-xs font-semibold text-[#FFC400]"
+            >
+              Forgot Password?
+            </button>
+          </div>
+
+          <ErrorText>{error}</ErrorText>
+          {info && <p className="text-sm text-[#b9f6ca]">{info}</p>}
+
+          <PrimaryButton type="submit" disabled={submitting}>
+            {submitting ? "Logging in\u2026" : "Log In"}
+          </PrimaryButton>
+        </form>
+
+        <div className="mt-auto space-y-3 pt-8">
+          <p className="text-center text-xs text-white/70">OR</p>
+          <OutlineButton onClick={() => router.push("/register")}>Create a New Account</OutlineButton>
+          <p className="pt-2 text-center text-xs text-white/70">Safe. Fast. Reliable.</p>
         </div>
-
-        {error && <p className="text-sm text-red-600">{error}</p>}
-
-        <button
-          type="submit"
-          disabled={submitting}
-          className="w-full rounded-xl bg-brand py-3 text-sm font-semibold text-white disabled:opacity-60"
-        >
-          {submitting ? "Logging in…" : "Log in"}
-        </button>
-      </form>
-
-      <p className="mt-6 text-center text-sm text-steel">
-        New here?{" "}
-        <a href="/register" className="font-semibold text-brand-accent">
-          Create an account
-        </a>
-      </p>
-    </div>
+      </div>
+    </AuthShell>
   );
 }
