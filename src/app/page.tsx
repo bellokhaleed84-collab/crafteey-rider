@@ -48,8 +48,11 @@ export default function HomePage() {
   }, [user, loading, router, getIdToken]);
 
   return (
-    <div className="flex min-h-screen items-center justify-center">
-      <p className="text-sm text-steel">Loading…</p>
+    <div className="min-h-screen space-y-4 p-4">
+      <div className="h-12 w-1/2 animate-pulse rounded-xl bg-gray-200 dark:bg-gray-700" />
+      <div className="h-40 animate-pulse rounded-2xl bg-gray-200 dark:bg-gray-700" />
+      <div className="h-24 animate-pulse rounded-2xl bg-gray-200 dark:bg-gray-700" />
+      <div className="h-24 animate-pulse rounded-2xl bg-gray-200 dark:bg-gray-700" />
     </div>
   );
 }
