@@ -8,7 +8,7 @@ import { useRiderStatus } from "@/contexts/RiderStatusContext";
 // Permanent base screen - the online/offline toggle lives here. Going
 // online now takes the rider straight into the search view; tapping the
 // map box does the same thing once already online, so both paths lead to
-// the same place.
+// the same place. If a delivery is in progress, both lead back to it instead.
 export default function DashboardHomePage() {
   const router = useRouter();
   const {
@@ -19,11 +19,12 @@ export default function DashboardHomePage() {
     location,
     permissionState,
     geoError,
+    activeRequestId,
   } = useRiderStatus();
 
   function handleMapTap() {
     if (!isOnline) return;
-    router.push("/dashboard/online");
+    router.push(activeRequestId ? "/dashboard/active" : "/dashboard/online");
   }
 
   async function handleToggleClick() {
@@ -32,7 +33,7 @@ export default function DashboardHomePage() {
     // Only auto-navigate on the offline -> online transition. Going
     // offline should just leave the rider on Home, not redirect them.
     if (wasOffline) {
-      router.push("/dashboard/online");
+      router.push(activeRequestId ? "/dashboard/active" : "/dashboard/online");
     }
   }
 
@@ -56,7 +57,11 @@ export default function DashboardHomePage() {
           {isOnline ? "You're online" : "You're offline"}
         </h1>
         <p className="text-sm text-steel">
-          {isOnline ? "Tap the map to search for deliveries" : "Ready to go?"}
+          {activeRequestId
+            ? "You have a delivery in progress"
+            : isOnline
+              ? "Tap the map to search for deliveries"
+              : "Ready to go?"}
         </p>
       </div>
 
@@ -64,7 +69,7 @@ export default function DashboardHomePage() {
         type="button"
         onClick={handleMapTap}
         disabled={!isOnline}
-        aria-label={isOnline ? "Open the live map to search for deliveries" : "Map preview"}
+        aria-label={isOnline ? "Open the live map" : "Map preview"}
         className={`mx-auto block aspect-square w-full max-w-sm overflow-hidden rounded-2xl border-2 border-slate-300 shadow-md transition-transform duration-150 ${
           isOnline ? "active:scale-[0.98]" : "cursor-default"
         }`}

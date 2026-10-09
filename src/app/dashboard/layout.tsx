@@ -7,6 +7,7 @@ import { COURIER_ACCOUNT_STATUS, REQUIRE_COURIER_APPROVAL } from "@/lib/constant
 import BottomNav from "@/components/BottomNav";
 import TopBar from "@/components/TopBar";
 import IncomingRequestBanner from "@/components/IncomingRequestBanner";
+import ActiveDeliveryBar from "@/components/ActiveDeliveryBar";
 import { RiderStatusProvider } from "@/contexts/RiderStatusContext";
 
 // Full-screen routes render their own back arrow and chrome - they
@@ -84,6 +85,7 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
         ) : (
           <main className="mx-auto max-w-lg px-5 py-6">{children}</main>
         )}
+        {!isFullscreen && <ActiveDeliveryBar />}
         {!isFullscreen && <BottomNav />}
         <IncomingRequestBanner />
       </div>

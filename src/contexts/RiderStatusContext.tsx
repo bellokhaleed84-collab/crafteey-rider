@@ -50,6 +50,11 @@ interface RiderStatusContextType {
   acceptError: string | null;
   handleAccept: (id: string) => Promise<void>;
   acceptWindowMs: number;
+  // The delivery the rider is in the middle of, if any. The rider can leave
+  // the delivery screen and look at other pages; this is how the app knows
+  // to show the "Delivery in progress" bar.
+  activeRequestId: string | null;
+  refreshActive: () => Promise<void>;
 }
 
 const RiderStatusContext = createContext<RiderStatusContextType | undefined>(undefined);
@@ -69,6 +74,13 @@ export function RiderStatusProvider({ children }: { children: ReactNode }) {
   const [requests, setRequests] = useState<QueueRequest[]>([]);
   const [acceptingId, setAcceptingId] = useState<string | null>(null);
   const [acceptError, setAcceptError] = useState<string | null>(null);
+
+  const [activeRequestId, setActiveRequestId] = useState<string | null>(null);
+  // The delivery we already sent the rider to the delivery screen for.
+  // We only send them there ONCE per delivery, so they are free to leave.
+  const redirectedForRef = useRef<string | null>(null);
+  const isOnlineRef = useRef(false);
+  isOnlineRef.current = isOnline;
 
   const hiddenUntilRef = useRef<Record<string, number>>({});
   const [hiddenTick, setHiddenTick] = useState(0);
@@ -138,6 +150,10 @@ export function RiderStatusProvider({ children }: { children: ReactNode }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Checks for an active delivery first (always, online or not), then loads
+  // the queue of new requests (only when online and not already delivering).
+  // The rider is sent to the delivery screen only the first time we see a
+  // given delivery. After that they can browse the app freely.
   const checkActiveThenLoadQueue = useCallback(async () => {
     const token = await getIdToken();
     if (!token) return;
@@ -146,10 +162,27 @@ export function RiderStatusProvider({ children }: { children: ReactNode }) {
       headers: { Authorization: `Bearer ${token}` },
     });
     const activeData = await activeRes.json().catch(() => ({}));
-    if (activeData.request) {
+
+    if (activeRes.ok) {
+      const activeId: string | null = activeData?.request?._id ?? null;
+      setActiveRequestId(activeId);
+
+      if (activeId) {
+        setRequests([]);
+        hiddenUntilRef.current = {};
+        if (redirectedForRef.current !== activeId) {
+          redirectedForRef.current = activeId;
+          router.replace("/dashboard/active");
+        }
+        return;
+      }
+
+      // No active delivery any more, so the next one may redirect again.
+      redirectedForRef.current = null;
+    }
+
+    if (!isOnlineRef.current) {
       setRequests([]);
-      hiddenUntilRef.current = {};
-      router.replace("/dashboard/active");
       return;
     }
 
@@ -163,10 +196,7 @@ export function RiderStatusProvider({ children }: { children: ReactNode }) {
   }, [getIdToken, router]);
 
   useEffect(() => {
-    if (!isOnline) {
-      setRequests([]);
-      return;
-    }
+    if (!isOnline) setRequests([]);
     checkActiveThenLoadQueue();
     const interval = setInterval(checkActiveThenLoadQueue, 6000);
     return () => clearInterval(interval);
@@ -219,6 +249,10 @@ export function RiderStatusProvider({ children }: { children: ReactNode }) {
       }
       setRequests([]);
       hiddenUntilRef.current = {};
+      // We are sending the rider to the delivery screen right now, so the
+      // background check must not send them there again.
+      redirectedForRef.current = id;
+      setActiveRequestId(id);
       router.push("/dashboard/active");
     } catch (err: any) {
       setAcceptError(err.message || "Couldn't accept this request.");
@@ -306,6 +340,8 @@ export function RiderStatusProvider({ children }: { children: ReactNode }) {
         acceptError,
         handleAccept,
         acceptWindowMs: ACCEPT_WINDOW_MS,
+        activeRequestId,
+        refreshActive: checkActiveThenLoadQueue,
       }}
     >
       {children}
