@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/contexts/AuthContext";
+import { auth } from "@/lib/firebase/clientApp";
 import { installBackgroundFetch } from "@/lib/nativeFetch";
 import { OverlayPermission } from "@/lib/overlayPermission";
 import { RiderBubble } from "@/lib/riderBubble";
@@ -98,7 +99,7 @@ export default function NativeSetup() {
         if (!Capacitor.isNativePlatform()) return;
         if (user) {
           await RiderBubble.setSession({
-            apiKey: user.auth.app.options.apiKey ?? "",
+            apiKey: auth.app.options.apiKey ?? "",
             refreshToken: user.refreshToken,
           });
         } else {
