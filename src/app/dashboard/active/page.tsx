@@ -2,12 +2,13 @@
 
 import { useCallback, useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import { useRouter } from "next/navigation";
-import { ArrowLeft, Check, Flag, MessageCircle, Phone } from "lucide-react";
+import { ArrowLeft, Check, Menu, MessageCircle, Phone } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { useRiderStatus } from "@/contexts/RiderStatusContext";
 import RouteMap from "@/components/map/RouteMap";
 import SlideButton from "@/components/SlideButton";
 import ChatSheet, { useChatUnread } from "@/components/chat/ChatSheet";
+import DeliveryMenuSheet from "@/components/active/DeliveryMenuSheet";
 import { EmergencySheet, GiveUpSheet, ProblemSheet } from "@/components/active/DeliveryHelpSheets";
 import { useGeolocation, type LatLng } from "@/hooks/useGeolocation";
 import { geocodeAddress } from "@/lib/geocode";
@@ -73,7 +74,7 @@ const SLIDE_LABEL: Record<string, string> = {
 };
 
 type View = "card" | "payment" | "collected";
-type HelpView = null | "problem" | "giveup" | "emergency";
+type HelpView = null | "menu" | "problem" | "giveup" | "emergency";
 
 function stopDrag(e: ReactPointerEvent<HTMLElement>) {
   e.stopPropagation();
@@ -583,20 +584,6 @@ export default function ActiveDeliveryPage() {
           </button>
         )}
 
-        {/* SOS: always sits just above the bottom sheet, however far it is open */}
-        <button
-          type="button"
-          onClick={() => setHelpView("emergency")}
-          aria-label="Emergency"
-          className="absolute left-4 z-30 flex h-14 w-14 items-center justify-center rounded-full bg-red-600 text-sm font-extrabold text-white shadow-lg ring-2 ring-white/80 active:scale-95"
-          style={{
-            bottom: sheetHeightPx - sheetTranslate + 16,
-            transition: liveTranslate === null ? "bottom 220ms ease" : "none",
-          }}
-        >
-          SOS
-        </button>
-
         {sheetExpanded && (
           <div
             className="absolute inset-0 z-10 bg-black/20"
@@ -612,7 +599,7 @@ export default function ActiveDeliveryPage() {
             transition: liveTranslate === null ? "transform 220ms ease" : "none",
           }}
         >
-          {/* Peek header: status, distance, quick chat + call */}
+          {/* Peek header: status, distance, menu button, quick chat + call */}
           <div
             onPointerDown={handleSheetPointerDown}
             onPointerMove={handleSheetPointerMove}
@@ -621,7 +608,7 @@ export default function ActiveDeliveryPage() {
             className="flex shrink-0 cursor-grab touch-none flex-col px-5 pb-3 pt-2.5 active:cursor-grabbing"
           >
             <div className="mx-auto h-1.5 w-10 rounded-full bg-slate-300" />
-            <div className="mt-3 flex items-center gap-3">
+            <div className="mt-3 flex items-start gap-3">
               <div className="min-w-0 flex-1">
                 <span className="inline-block rounded-full bg-blue-100 px-2.5 py-1 text-xs font-semibold text-blue-700">
                   {stage.statusLabel}
@@ -652,36 +639,50 @@ export default function ActiveDeliveryPage() {
                 </div>
               </div>
 
-              <button
-                type="button"
-                onPointerDown={stopDrag}
-                onClick={() => setChatOpen(true)}
-                aria-label="Chat with the customer"
-                className="relative flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-slate-100 text-slate-700"
-              >
-                <MessageCircle className="h-5 w-5" />
-                {unread > 0 && (
-                  <span className="absolute -right-0.5 -top-0.5 flex h-4 min-w-[16px] items-center justify-center rounded-full bg-red-500 px-1 text-[10px] font-bold text-white">
-                    {unread > 9 ? "9+" : unread}
-                  </span>
-                )}
-              </button>
-              <a
-                href={`tel:${contactPhone}`}
-                onPointerDown={stopDrag}
-                aria-label={`Call ${contactName}`}
-                className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-brand-accent text-white"
-              >
-                <Phone className="h-5 w-5" />
-              </a>
-              <svg
-                className={`h-5 w-5 shrink-0 text-slate-400 transition-transform ${sheetExpanded ? "rotate-180" : ""}`}
-                fill="none"
-                viewBox="0 0 24 24"
-                stroke="currentColor"
-              >
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-              </svg>
+              <div className="flex shrink-0 flex-col items-end gap-1.5">
+                {/* Three-line menu: SOS, report a problem, give up job */}
+                <button
+                  type="button"
+                  onPointerDown={stopDrag}
+                  onClick={() => setHelpView("menu")}
+                  aria-label="Delivery help menu"
+                  className="flex h-10 w-10 items-center justify-center rounded-full bg-slate-100 text-slate-700 active:scale-95"
+                >
+                  <Menu className="h-5 w-5" />
+                </button>
+                <div className="flex items-center gap-3">
+                  <button
+                    type="button"
+                    onPointerDown={stopDrag}
+                    onClick={() => setChatOpen(true)}
+                    aria-label="Chat with the customer"
+                    className="relative flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-slate-100 text-slate-700"
+                  >
+                    <MessageCircle className="h-5 w-5" />
+                    {unread > 0 && (
+                      <span className="absolute -right-0.5 -top-0.5 flex h-4 min-w-[16px] items-center justify-center rounded-full bg-red-500 px-1 text-[10px] font-bold text-white">
+                        {unread > 9 ? "9+" : unread}
+                      </span>
+                    )}
+                  </button>
+                  <a
+                    href={`tel:${contactPhone}`}
+                    onPointerDown={stopDrag}
+                    aria-label={`Call ${contactName}`}
+                    className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-brand-accent text-white"
+                  >
+                    <Phone className="h-5 w-5" />
+                  </a>
+                  <svg
+                    className={`h-5 w-5 shrink-0 text-slate-400 transition-transform ${sheetExpanded ? "rotate-180" : ""}`}
+                    fill="none"
+                    viewBox="0 0 24 24"
+                    stroke="currentColor"
+                  >
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                  </svg>
+                </div>
+              </div>
             </div>
           </div>
 
@@ -791,26 +792,6 @@ export default function ActiveDeliveryPage() {
                 />
               </div>
             )}
-
-            {/* Help: report a problem, or give the job back before pickup */}
-            <div className="mt-4 flex gap-2">
-              <button
-                type="button"
-                onClick={() => setHelpView("problem")}
-                className="flex min-h-[52px] flex-1 items-center justify-center gap-1.5 rounded-xl border border-slate-200 py-3 text-center text-sm font-semibold text-slate-700 transition-transform duration-150 active:scale-[0.98]"
-              >
-                <Flag className="h-4 w-4" /> Report a problem
-              </button>
-              {canGiveUp && (
-                <button
-                  type="button"
-                  onClick={() => setHelpView("giveup")}
-                  className="flex min-h-[52px] flex-1 items-center justify-center rounded-xl border border-red-200 py-3 text-center text-sm font-semibold text-red-600 transition-transform duration-150 active:scale-[0.98]"
-                >
-                  Give up job
-                </button>
-              )}
-            </div>
           </div>
         </div>
       </div>
@@ -922,6 +903,13 @@ export default function ActiveDeliveryPage() {
         />
       )}
 
+      {helpView === "menu" && (
+        <DeliveryMenuSheet
+          canGiveUp={canGiveUp}
+          onPick={(choice) => setHelpView(choice)}
+          onClose={() => setHelpView(null)}
+        />
+      )}
       {helpView === "problem" && (
         <ProblemSheet
           requestId={request._id}
