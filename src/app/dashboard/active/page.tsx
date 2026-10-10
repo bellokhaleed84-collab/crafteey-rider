@@ -68,6 +68,9 @@ const STEP_PASS_METERS = 30;
 const SHEET_PEEK_PX = 148;
 const SHEET_EXPANDED_RATIO = 0.82;
 const TAP_THRESHOLD_PX = 6;
+// Empty space under the sheet's content so the last button can scroll up
+// above the app's bottom navigation bar.
+const SHEET_BOTTOM_SPACE_PX = 120;
 
 const SLIDE_LABEL: Record<string, string> = {
   [COURIER_STATUS.ACCEPTED]: "Slide to confirm pickup",
@@ -702,7 +705,10 @@ export default function ActiveDeliveryPage() {
             </div>
           </div>
 
-          <div className="flex-1 overflow-y-auto px-5 pb-6">
+          <div
+            className="flex-1 overflow-y-auto px-5"
+            style={{ paddingBottom: `calc(${SHEET_BOTTOM_SPACE_PX}px + env(safe-area-inset-bottom, 0px))` }}
+          >
             {geo.permissionState === "denied" && (
               <p className="mb-3 text-xs text-red-600">
                 Location sharing is off - the client won't see your live position until you enable
