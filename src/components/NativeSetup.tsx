@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { useAuth } from "@/contexts/AuthContext";
 import { auth } from "@/lib/firebase/clientApp";
 import { installBackgroundFetch } from "@/lib/nativeFetch";
@@ -16,21 +16,29 @@ function toHex(n: number): string {
   return Math.max(0, Math.min(255, n)).toString(16).padStart(2, "0");
 }
 
-// Reads the app's real background colour so the Android top bar matches it.
-function readThemeColor(): { color: string; lightBar: boolean } {
+// Turns a CSS colour like "rgb(63, 4, 172)" into hex, or null if it is
+// see-through (so we keep looking at the element underneath).
+function parseColor(css: string): { color: string; lightBar: boolean } | null {
+  const m = css.match(/rgba?\(\s*(\d+)[\s,]+(\d+)[\s,]+(\d+)(?:[\s,/]+([\d.]+))?/);
+  if (!m) return null;
+  const alpha = m[4] === undefined ? 1 : parseFloat(m[4]);
+  if (alpha < 0.5) return null;
+  const r = parseInt(m[1], 10);
+  const g = parseInt(m[2], 10);
+  const b = parseInt(m[3], 10);
+  const luminance = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
+  return { color: "#" + toHex(r) + toHex(g) + toHex(b), lightBar: luminance > 0.6 };
+}
+
+// Finds the colour at the very top edge of the screen: whatever page or
+// header is there right now. The Android top bar copies it.
+function colorAtTop(): { color: string; lightBar: boolean } {
   const fallback = { color: "#121212", lightBar: false };
-  const candidates = [document.body, document.documentElement];
-  for (const el of candidates) {
-    const css = getComputedStyle(el).backgroundColor;
-    const m = css.match(/rgba?\(\s*(\d+)[\s,]+(\d+)[\s,]+(\d+)(?:[\s,/]+([\d.]+))?/);
-    if (!m) continue;
-    const alpha = m[4] === undefined ? 1 : parseFloat(m[4]);
-    if (alpha < 0.5) continue;
-    const r = parseInt(m[1], 10);
-    const g = parseInt(m[2], 10);
-    const b = parseInt(m[3], 10);
-    const luminance = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
-    return { color: "#" + toHex(r) + toHex(g) + toHex(b), lightBar: luminance > 0.6 };
+  let el: Element | null = document.elementFromPoint(Math.floor(window.innerWidth / 2), 2);
+  while (el) {
+    const parsed = parseColor(getComputedStyle(el).backgroundColor);
+    if (parsed) return parsed;
+    el = el.parentElement;
   }
   return fallback;
 }
@@ -40,6 +48,7 @@ function readThemeColor(): { color: string; lightBar: boolean } {
 // for "Display over other apps". Does nothing in a normal browser.
 export default function NativeSetup() {
   const router = useRouter();
+  const pathname = usePathname();
   const { user, loading, getIdToken } = useAuth();
   const getIdTokenRef = useRef(getIdToken);
   getIdTokenRef.current = getIdToken;
@@ -49,7 +58,7 @@ export default function NativeSetup() {
     installBackgroundFetch().catch(() => {});
   }, []);
 
-  // Top bar follows light / dark mode.
+  // Top bar follows the colour at the top of whatever page is showing.
   useEffect(() => {
     let timer: ReturnType<typeof setTimeout> | null = null;
     let last = "";
@@ -58,7 +67,7 @@ export default function NativeSetup() {
       try {
         const { Capacitor } = await import("@capacitor/core");
         if (!Capacitor.isNativePlatform()) return;
-        const { color, lightBar } = readThemeColor();
+        const { color, lightBar } = colorAtTop();
         const key = color + (lightBar ? "L" : "D");
         if (key === last) return;
         last = key;
@@ -74,6 +83,8 @@ export default function NativeSetup() {
     }
 
     schedule();
+    // Headers and pages can appear a moment late, so also re-check regularly.
+    const interval = setInterval(schedule, 700);
     const observer = new MutationObserver(schedule);
     const opts = { attributes: true, attributeFilter: ["class", "style", "data-theme"] };
     observer.observe(document.documentElement, opts);
@@ -84,11 +95,12 @@ export default function NativeSetup() {
 
     return () => {
       if (timer) clearTimeout(timer);
+      clearInterval(interval);
       observer.disconnect();
       media.removeEventListener("change", schedule);
       document.removeEventListener("visibilitychange", schedule);
     };
-  }, []);
+  }, [pathname]);
 
   // Give the floating bubble the rider's login so it can fetch requests.
   useEffect(() => {

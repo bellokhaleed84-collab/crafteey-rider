@@ -2,11 +2,13 @@
 
 import { useCallback, useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import { useRouter } from "next/navigation";
-import { ArrowLeft, Check, MessageCircle, Phone } from "lucide-react";
+import { ArrowLeft, Check, Flag, MessageCircle, Phone } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
+import { useRiderStatus } from "@/contexts/RiderStatusContext";
 import RouteMap from "@/components/map/RouteMap";
 import SlideButton from "@/components/SlideButton";
 import ChatSheet, { useChatUnread } from "@/components/chat/ChatSheet";
+import { EmergencySheet, GiveUpSheet, ProblemSheet } from "@/components/active/DeliveryHelpSheets";
 import { useGeolocation, type LatLng } from "@/hooks/useGeolocation";
 import { geocodeAddress } from "@/lib/geocode";
 import {
@@ -71,6 +73,7 @@ const SLIDE_LABEL: Record<string, string> = {
 };
 
 type View = "card" | "payment" | "collected";
+type HelpView = null | "problem" | "giveup" | "emergency";
 
 function stopDrag(e: ReactPointerEvent<HTMLElement>) {
   e.stopPropagation();
@@ -101,12 +104,14 @@ function turnRotation(modifier: string | null): number {
 export default function ActiveDeliveryPage() {
   const router = useRouter();
   const { getIdToken } = useAuth();
+  const { refreshActive } = useRiderStatus();
   const [request, setRequest] = useState<ActiveRequest | null>(null);
   const [loading, setLoading] = useState(true);
   const [advancing, setAdvancing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [view, setView] = useState<View>("card");
   const [chatOpen, setChatOpen] = useState(false);
+  const [helpView, setHelpView] = useState<HelpView>(null);
 
   const [pickupCoords, setPickupCoords] = useState<LatLng | null>(null);
   const [dropoffCoords, setDropoffCoords] = useState<LatLng | null>(null);
@@ -469,6 +474,10 @@ export default function ActiveDeliveryPage() {
   const atPaymentStep =
     needsPayment && request.status === COURIER_STATUS.EN_ROUTE && !paymentDone;
 
+  // A job can only be given back before pickup, and before any payment started.
+  const canGiveUp =
+    request.status === COURIER_STATUS.ACCEPTED && (request.paymentStatus ?? "unpaid") === "unpaid";
+
   return (
     <>
       <div className="fixed inset-0 z-0 overflow-hidden bg-slate-100">
@@ -573,6 +582,20 @@ export default function ActiveDeliveryPage() {
             </svg>
           </button>
         )}
+
+        {/* SOS: always sits just above the bottom sheet, however far it is open */}
+        <button
+          type="button"
+          onClick={() => setHelpView("emergency")}
+          aria-label="Emergency"
+          className="absolute left-4 z-30 flex h-14 w-14 items-center justify-center rounded-full bg-red-600 text-sm font-extrabold text-white shadow-lg ring-2 ring-white/80 active:scale-95"
+          style={{
+            bottom: sheetHeightPx - sheetTranslate + 16,
+            transition: liveTranslate === null ? "bottom 220ms ease" : "none",
+          }}
+        >
+          SOS
+        </button>
 
         {sheetExpanded && (
           <div
@@ -768,6 +791,26 @@ export default function ActiveDeliveryPage() {
                 />
               </div>
             )}
+
+            {/* Help: report a problem, or give the job back before pickup */}
+            <div className="mt-4 flex gap-2">
+              <button
+                type="button"
+                onClick={() => setHelpView("problem")}
+                className="flex min-h-[52px] flex-1 items-center justify-center gap-1.5 rounded-xl border border-slate-200 py-3 text-center text-sm font-semibold text-slate-700 transition-transform duration-150 active:scale-[0.98]"
+              >
+                <Flag className="h-4 w-4" /> Report a problem
+              </button>
+              {canGiveUp && (
+                <button
+                  type="button"
+                  onClick={() => setHelpView("giveup")}
+                  className="flex min-h-[52px] flex-1 items-center justify-center rounded-xl border border-red-200 py-3 text-center text-sm font-semibold text-red-600 transition-transform duration-150 active:scale-[0.98]"
+                >
+                  Give up job
+                </button>
+              )}
+            </div>
           </div>
         </div>
       </div>
@@ -876,6 +919,34 @@ export default function ActiveDeliveryPage() {
           subtitle="Customer chat"
           getIdToken={getIdToken}
           onClose={() => setChatOpen(false)}
+        />
+      )}
+
+      {helpView === "problem" && (
+        <ProblemSheet
+          requestId={request._id}
+          getIdToken={getIdToken}
+          location={geo.location}
+          onClose={() => setHelpView(null)}
+        />
+      )}
+      {helpView === "giveup" && (
+        <GiveUpSheet
+          requestId={request._id}
+          getIdToken={getIdToken}
+          onClose={() => setHelpView(null)}
+          onDone={async () => {
+            await refreshActive();
+            router.replace("/dashboard");
+          }}
+        />
+      )}
+      {helpView === "emergency" && (
+        <EmergencySheet
+          requestId={request._id}
+          getIdToken={getIdToken}
+          location={geo.location}
+          onClose={() => setHelpView(null)}
         />
       )}
     </>
