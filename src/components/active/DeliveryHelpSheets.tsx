@@ -1,9 +1,10 @@
 "use client";
 
-import { useState, type ReactNode } from "react";
-import { Check } from "lucide-react";
+import { useEffect, useState, type ReactNode } from "react";
+import { Check, ChevronDown, Phone } from "lucide-react";
 import type { LatLng } from "@/hooks/useGeolocation";
-import { GIVE_UP_REASONS, PROBLEM_REASONS } from "@/lib/reportReasons";
+import { GIVE_UP_REASONS } from "@/lib/reportReasons";
+import { COURIER_STATUS } from "@/lib/constants";
 
 type GetToken = () => Promise<string | null>;
 
@@ -76,96 +77,231 @@ function ReasonList({
   );
 }
 
-function DoneView({ title, text, onClose }: { title: string; text: string; onClose: () => void }) {
+// ----------------------------------------------------------------------
+// Report a problem: every problem shows a solution. Nothing goes to admin.
+// ----------------------------------------------------------------------
+type ProblemRequest = {
+  status: string;
+  source?: string;
+  totalFeeKobo?: number | null;
+  clientName?: string;
+  clientPhone?: string;
+  pickupContactName?: string;
+  pickupContactPhone?: string;
+  receiverName?: string;
+  receiverPhone?: string;
+  deliveryCodeRequired?: boolean;
+};
+
+type Contact = { label: string; name: string; phone: string };
+type ContactKey = "stage" | "pickup" | "receiver" | "customer";
+
+type Problem = {
+  id: string;
+  title: string;
+  text: string;
+  contacts: ContactKey[];
+};
+
+function buildContacts(req: ProblemRequest, keys: ContactKey[]): Contact[] {
+  const atPickup = req.status === COURIER_STATUS.ACCEPTED;
+  const customer: Contact = {
+    label: "Customer who booked",
+    name: req.clientName || "Customer",
+    phone: req.clientPhone || "",
+  };
+  const pickup: Contact = {
+    label: "Pickup contact",
+    name: req.pickupContactName || req.clientName || "Pickup contact",
+    phone: req.pickupContactPhone || req.clientPhone || "",
+  };
+  const receiver: Contact = {
+    label: "Receiver",
+    name: req.receiverName || req.clientName || "Receiver",
+    phone: req.receiverPhone || req.clientPhone || "",
+  };
+
+  const out: Contact[] = [];
+  const seen = new Set<string>();
+  for (const k of keys) {
+    const c = k === "customer" ? customer : k === "pickup" ? pickup : k === "receiver" ? receiver : atPickup ? pickup : receiver;
+    const key = c.phone || `${c.label}-${c.name}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(c);
+  }
+  return out;
+}
+
+function problemsFor(req: ProblemRequest): Problem[] {
+  const atPickup = req.status === COURIER_STATUS.ACCEPTED;
+  const enRoute = req.status === COURIER_STATUS.EN_ROUTE;
+  const list: Problem[] = [
+    {
+      id: "no_answer",
+      title: "Customer is not answering",
+      text: "Call them below. If nobody picks up, try the other number, then send a message with the Chat button. Please wait at the location and do not leave.",
+      contacts: ["stage", "customer"],
+    },
+    {
+      id: "cant_find",
+      title: "Can't find the address",
+      text: "Call and ask them to guide you, or ask them to share their location in Chat. Stay where you are until you hear back.",
+      contacts: ["stage", "customer"],
+    },
+  ];
+
+  if (atPickup) {
+    list.push({
+      id: "not_ready",
+      title: "Package is not ready at pickup",
+      text: "Call the pickup contact and ask how long it will take. Please wait at the pickup point.",
+      contacts: ["pickup", "customer"],
+    });
+  }
+
+  if (enRoute && req.deliveryCodeRequired) {
+    list.push({
+      id: "no_code",
+      title: "Receiver can't give the delivery code",
+      text: "The code is only on the customer's app. Call the customer who booked and ask them to give the code to the receiver. If the delivery says it is locked, keep waiting and keep calling. Do not hand over the package without the code.",
+      contacts: ["customer", "receiver"],
+    });
+  }
+
+  if (req.source !== "hub" && typeof req.totalFeeKobo === "number" && req.totalFeeKobo > 0) {
+    list.push({
+      id: "payment",
+      title: "Payment problem",
+      text: "Call the customer and the receiver to settle the payment. For a transfer, check your bank app before you confirm. Do not hand over the package until you are paid.",
+      contacts: ["customer", "receiver"],
+    });
+  }
+
+  list.push({
+    id: "other",
+    title: "Something else",
+    text: "Call the customer to sort it out. Stay at the location and wait.",
+    contacts: ["customer", "stage"],
+  });
+
+  return list;
+}
+
+function ContactRow({ c }: { c: Contact }) {
   return (
-    <div className="flex flex-col items-center py-6 text-center">
-      <span className="flex h-16 w-16 items-center justify-center rounded-full bg-sunshine">
-        <Check className="h-8 w-8" strokeWidth={3} style={{ color: "#15181F" }} />
-      </span>
-      <p className="mt-4 text-lg font-extrabold text-brand">{title}</p>
-      <p className="mt-1 text-sm text-steel">{text}</p>
-      <button
-        type="button"
-        onClick={onClose}
-        className="mt-6 min-h-[52px] w-full rounded-xl bg-sunshine py-3.5 text-sm font-extrabold"
-        style={{ color: "#15181F" }}
-      >
-        Back to delivery
-      </button>
+    <div className="flex items-center gap-3 rounded-xl bg-white p-3">
+      <div className="min-w-0 flex-1">
+        <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">{c.label}</p>
+        <p className="truncate text-sm font-bold text-brand">{c.name}</p>
+        <p className="truncate text-xs text-steel">{c.phone || "No number saved"}</p>
+      </div>
+      {c.phone ? (
+        <a
+          href={`tel:${c.phone}`}
+          aria-label={`Call ${c.name}`}
+          className="flex min-h-[52px] shrink-0 items-center justify-center gap-2 rounded-xl bg-brand-accent px-5 text-sm font-bold text-white transition-transform duration-150 active:scale-[0.98]"
+        >
+          <Phone className="h-5 w-5" /> Call
+        </a>
+      ) : null}
     </div>
   );
 }
 
-// ----------------------------------------------------------------------
-// Report a problem (the delivery carries on)
-// ----------------------------------------------------------------------
 export function ProblemSheet({
-  requestId,
   getIdToken,
-  location,
   onClose,
 }: {
-  requestId: string;
+  requestId?: string;
   getIdToken: GetToken;
-  location: LatLng | null;
+  location?: LatLng | null;
   onClose: () => void;
 }) {
-  const [reason, setReason] = useState("");
-  const [note, setNote] = useState("");
-  const [sending, setSending] = useState(false);
-  const [done, setDone] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [req, setReq] = useState<ProblemRequest | null>(null);
+  const [failed, setFailed] = useState(false);
+  const [open, setOpen] = useState<string>("");
 
-  async function submit() {
-    if (!reason || sending) return;
-    setSending(true);
-    setError(null);
-    try {
-      await send(getIdToken, "POST", `/api/courier-requests/${requestId}/report`, {
-        kind: "problem",
-        reason,
-        note: note.trim(),
-        location,
-      });
-      setDone(true);
-    } catch (e: any) {
-      setError(e.message || "Couldn't send the report.");
-    } finally {
-      setSending(false);
-    }
-  }
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const token = await getIdToken();
+        if (!token) throw new Error("no token");
+        const res = await fetch("/api/courier-requests/active", {
+          headers: { Authorization: `Bearer ${token}` },
+          cache: "no-store",
+        });
+        const data = await res.json().catch(() => null);
+        if (!res.ok || !data?.request) throw new Error("failed");
+        if (!cancelled) setReq(data.request);
+      } catch {
+        if (!cancelled) setFailed(true);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [getIdToken]);
 
   return (
     <SheetShell title="Report a problem" onClose={onClose}>
-      {done ? (
-        <DoneView
-          title="Report sent"
-          text="Crafteey has your report. You can carry on with the delivery."
-          onClose={onClose}
-        />
+      <p className="mt-1 text-sm text-steel">Pick what is going wrong to see what to do.</p>
+
+      {failed ? (
+        <p className="mt-4 rounded-xl bg-red-50 p-4 text-sm text-red-600">
+          Couldn&apos;t load the delivery details. Close this and try again.
+        </p>
+      ) : !req ? (
+        <div className="mt-4 space-y-2" aria-busy="true">
+          <div className="h-[52px] animate-pulse rounded-xl bg-slate-200" />
+          <div className="h-[52px] animate-pulse rounded-xl bg-slate-200" />
+          <div className="h-[52px] animate-pulse rounded-xl bg-slate-200" />
+        </div>
       ) : (
-        <>
-          <p className="mt-1 text-sm text-steel">What is going wrong? The delivery stays open.</p>
-          <ReasonList reasons={PROBLEM_REASONS} value={reason} onChange={setReason} />
-          <textarea
-            value={note}
-            onChange={(e) => setNote(e.target.value)}
-            maxLength={500}
-            rows={3}
-            placeholder="Add a note (optional)"
-            className="mt-3 w-full rounded-xl border border-slate-200 bg-white p-3 text-sm text-brand"
-          />
-          {error && <p className="mt-2 text-sm text-red-600">{error}</p>}
-          <button
-            type="button"
-            onClick={submit}
-            disabled={!reason || sending}
-            className="mt-4 min-h-[56px] w-full rounded-xl bg-brand-accent py-3.5 text-base font-bold text-white transition-transform duration-150 active:scale-[0.98] disabled:opacity-50"
-          >
-            {sending ? "Sending..." : "Send report"}
-          </button>
-        </>
+        <div className="mt-4 space-y-2">
+          {problemsFor(req).map((p) => {
+            const isOpen = open === p.id;
+            return (
+              <div
+                key={p.id}
+                className={`overflow-hidden rounded-xl border ${
+                  isOpen ? "border-brand-accent bg-brand-accent/5" : "border-slate-200"
+                }`}
+              >
+                <button
+                  type="button"
+                  onClick={() => setOpen(isOpen ? "" : p.id)}
+                  className="flex min-h-[52px] w-full items-center justify-between gap-3 px-4 py-3 text-left text-sm font-semibold text-brand"
+                >
+                  <span>{p.title}</span>
+                  <ChevronDown
+                    className={`h-5 w-5 shrink-0 text-slate-400 transition-transform ${isOpen ? "rotate-180" : ""}`}
+                  />
+                </button>
+                {isOpen && (
+                  <div className="space-y-3 px-4 pb-4">
+                    <p className="text-sm text-slate-600">{p.text}</p>
+                    <div className="space-y-2 rounded-xl bg-slate-50 p-2">
+                      {buildContacts(req, p.contacts).map((c) => (
+                        <ContactRow key={`${c.label}-${c.phone}`} c={c} />
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
       )}
+
+      <button
+        type="button"
+        onClick={onClose}
+        className="mt-4 min-h-[52px] w-full rounded-xl py-3 text-sm font-semibold text-steel"
+      >
+        Back to delivery
+      </button>
     </SheetShell>
   );
 }

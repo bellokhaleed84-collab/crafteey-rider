@@ -19,6 +19,9 @@ const DEBT_SUSPENSION_THRESHOLD_KOBO = 800_000;
 // Wrong delivery codes allowed before the delivery locks.
 const MAX_CODE_ATTEMPTS = 5;
 
+const LOCKED_MESSAGE =
+  "Too many wrong codes, so this delivery is locked. Call the customer who booked and ask them to give the receiver the right code. Do not hand over the package without it.";
+
 function codesMatch(a: string, b: string): boolean {
   const x = Buffer.from(a);
   const y = Buffer.from(b);
@@ -181,7 +184,7 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
       if (!counted) {
         return NextResponse.json(
           {
-            error: "Too many wrong codes. Tap the menu and use Report a problem so Crafteey can help.",
+            error: LOCKED_MESSAGE,
             codeLocked: true,
           },
           { status: 429 }
@@ -195,7 +198,7 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
             error:
               left > 0
                 ? `That code is wrong. ${left} ${left === 1 ? "try" : "tries"} left.`
-                : "Too many wrong codes. Tap the menu and use Report a problem so Crafteey can help.",
+                : LOCKED_MESSAGE,
             codeLocked: left <= 0,
           },
           { status: 422 }

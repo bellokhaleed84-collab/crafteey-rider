@@ -78,7 +78,7 @@ export default function DeliveryMenuSheet({
             tone="plain"
             icon={<Flag className="h-6 w-6" />}
             title="Report a problem"
-            subtitle="The delivery stays open"
+            subtitle="See what to do and who to call"
             onClick={() => onPick("problem")}
           />
           {canGiveUp && (
