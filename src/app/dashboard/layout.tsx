@@ -46,6 +46,10 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
 
         if (!data.courier) {
           router.replace("/register");
+        } else if (data.courier.status === COURIER_ACCOUNT_STATUS.REJECTED) {
+          // A rejected rider always sees the reason and can send a new
+          // document, even while the approval gate is off for testing.
+          router.replace("/pending");
         } else if (
           !REQUIRE_COURIER_APPROVAL ||
           data.courier.status === COURIER_ACCOUNT_STATUS.APPROVED

@@ -35,6 +35,11 @@ const CourierSchema = new Schema(
       index: true,
     },
 
+    // Why the admin rejected the application (shown to the rider), and when
+    // the rider last sent a new document after a rejection.
+    rejectionReason: { type: String, default: "" },
+    resubmittedAt: { type: Date, default: null },
+
     // Set true only while the courier has the app open and location
     // sharing enabled - used to decide whether to surface them for new
     // request matching.
