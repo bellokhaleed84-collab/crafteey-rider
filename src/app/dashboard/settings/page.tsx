@@ -7,6 +7,7 @@ import { ChevronRight } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { SETTINGS_MENU } from "@/lib/settingsMenu";
 import Avatar from "@/components/Avatar";
+import RatingSummaryCard from "@/components/RatingSummaryCard";
 
 type Extra = { slug: string; title: string; description: string; icon: string; group: "core" | "more" };
 
@@ -94,6 +95,9 @@ export default function SettingsPage() {
       ) : (
         <div className="h-[88px] animate-pulse rounded-2xl bg-slate-200" />
       )}
+
+      {/* How customers rate you. Tap to see every rating. */}
+      <RatingSummaryCard />
 
       {SETTINGS_MENU.map((group) => (
         <div key={group.title}>

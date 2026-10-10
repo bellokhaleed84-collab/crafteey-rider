@@ -69,7 +69,7 @@ export default function RatingsPage() {
   }
 
   const back = (
-    <Link href="/dashboard" className="inline-flex items-center gap-1 text-sm font-semibold text-brand-accent">
+    <Link href="/dashboard/settings" className="inline-flex items-center gap-1 text-sm font-semibold text-brand-accent">
       <ArrowLeft className="h-4 w-4" /> Back
     </Link>
   );
