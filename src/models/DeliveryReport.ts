@@ -1,10 +1,11 @@
 import { Schema, models, model } from "mongoose";
 
-// Reports from riders: a problem on a delivery, an emergency alert, or a job
-// given back before pickup. Saved with a snapshot of the delivery so an admin
-// can read it without looking anything else up.
-// Note: crafteey-admin needs its own copy of this file to show these.
-export const REPORT_KINDS = ["problem", "emergency", "gave_up"] as const;
+// Reports from riders: an emergency alert, a job given back before pickup, or
+// a delivery locked after too many wrong delivery codes. Saved with a snapshot
+// of the delivery so an admin can read it without looking anything else up.
+// "problem" is no longer created (Report a problem now shows solutions instead).
+// Note: crafteey-admin has its own copy of this file.
+export const REPORT_KINDS = ["problem", "emergency", "gave_up", "locked"] as const;
 
 const DeliveryReportSchema = new Schema(
   {

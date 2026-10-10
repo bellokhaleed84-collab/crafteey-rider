@@ -5,6 +5,7 @@ import { connectToDatabase } from "@/lib/mongodb";
 import CourierRequest from "@/models/CourierRequest";
 import HubOrder from "@/models/HubOrder";
 import Courier from "@/models/Courier";
+import DeliveryReport from "@/models/DeliveryReport";
 import Transaction, { TRANSACTION_TYPE } from "@/models/Transaction";
 import { COURIER_STATUS } from "@/lib/constants";
 
@@ -32,6 +33,48 @@ function hubStatusFor(next: string): string | null {
   if (next === COURIER_STATUS.PICKED_UP || next === COURIER_STATUS.EN_ROUTE) return "out_for_delivery";
   if (next === COURIER_STATUS.DELIVERED) return "delivered";
   return null;
+}
+
+// Tell admin a delivery is locked. Only one open alert per delivery.
+async function saveLockedReport(request: {
+  _id: unknown;
+  courierName?: string | null;
+  courierPhone?: string | null;
+  clientName?: string | null;
+  pickup?: string | null;
+  dropoff?: string | null;
+  source?: string | null;
+  orderNumber?: string | null;
+  courierLocation?: { lat?: number | null; lng?: number | null } | null;
+}, uid: string) {
+  try {
+    const existing = await DeliveryReport.findOne({
+      requestId: String(request._id),
+      kind: "locked",
+      status: "open",
+    }).lean();
+    if (existing) return;
+
+    const loc = request.courierLocation;
+    const hasLoc = loc && typeof loc.lat === "number" && typeof loc.lng === "number";
+
+    await DeliveryReport.create({
+      kind: "locked",
+      requestId: String(request._id),
+      courierUid: uid,
+      courierName: request.courierName ?? "",
+      courierPhone: request.courierPhone ?? "",
+      clientName: request.clientName ?? "",
+      pickup: request.pickup ?? "",
+      dropoff: request.dropoff ?? "",
+      source: request.source ?? "direct",
+      orderNumber: request.orderNumber ?? null,
+      reason: "Delivery locked after 5 wrong codes",
+      location: hasLoc ? { lat: loc!.lat, lng: loc!.lng } : null,
+    });
+  } catch (e) {
+    console.error("[rider] failed to save locked report", e);
+  }
 }
 
 // Short label for the transaction ledger. Falls back to a shortened id
@@ -182,6 +225,7 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
       ).select("deliveryCodeAttempts");
 
       if (!counted) {
+        void saveLockedReport(request, uid);
         return NextResponse.json(
           {
             error: LOCKED_MESSAGE,
@@ -193,6 +237,7 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
 
       if (!codesMatch(submittedCode, request.deliveryCode)) {
         const left = Math.max(MAX_CODE_ATTEMPTS - (counted.deliveryCodeAttempts ?? MAX_CODE_ATTEMPTS), 0);
+        if (left <= 0) void saveLockedReport(request, uid);
         return NextResponse.json(
           {
             error:
