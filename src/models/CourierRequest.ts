@@ -49,6 +49,14 @@ const CourierRequestSchema = new Schema(
     vendorName: { type: String, default: "" },
     pickupCode: { type: String, default: null },
 
+    // Delivery code: a 4-digit code the customer gives the receiver. The rider
+    // must type it to finish the delivery. Always on for Hub orders; direct
+    // rides switch it on when booking. The code itself is never sent to rider apps.
+    deliveryCodeRequired: { type: Boolean, default: false },
+    deliveryCode: { type: String, default: null },
+    deliveryCodeAttempts: { type: Number, default: 0 },
+    deliveryCodeVerifiedAt: { type: Date, default: null },
+
     status: {
       type: String,
       enum: Object.values(COURIER_STATUS),

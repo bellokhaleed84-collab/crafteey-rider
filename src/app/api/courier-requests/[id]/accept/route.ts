@@ -33,6 +33,7 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
       );
     }
 
+    // The delivery code is for the customer and receiver only. Never send it to the rider.
     const request = await CourierRequest.findOneAndUpdate(
       { _id: params.id, status: COURIER_STATUS.PENDING, courierUid: null },
       {
@@ -44,7 +45,7 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
         },
       },
       { new: true }
-    );
+    ).select("-deliveryCode");
 
     if (!request) {
       return NextResponse.json(
@@ -53,7 +54,7 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
       );
     }
 
-    // Keep the client's Hub order-tracking page in sync — a rider being
+    // Keep the client's Hub order-tracking page in sync - a rider being
     // assigned means the order can now show as "preparing" (rider is
     // heading to the vendor). Fire-and-forget-ish: logged, not thrown,
     // so a sync failure never blocks the courier from accepting.

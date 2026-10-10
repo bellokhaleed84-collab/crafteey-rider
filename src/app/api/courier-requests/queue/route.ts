@@ -23,12 +23,14 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ requests: [] });
     }
 
+    // The delivery code is for the customer and receiver only. Never send it to the rider.
     const requests = await CourierRequest.find({
       status: COURIER_STATUS.PENDING,
       courierUid: null,
       vehicleType: courier.vehicleType,
       declinedBy: { $ne: decoded.uid },
     })
+      .select("-deliveryCode")
       .sort({ createdAt: 1 })
       .limit(20)
       .lean();

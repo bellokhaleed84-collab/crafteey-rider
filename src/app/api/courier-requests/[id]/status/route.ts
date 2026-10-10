@@ -1,3 +1,4 @@
+import crypto from "crypto";
 import { NextRequest, NextResponse } from "next/server";
 import { verifyToken, AuthError } from "@/middleware/auth";
 import { connectToDatabase } from "@/lib/mongodb";
@@ -14,6 +15,15 @@ const NEXT_STATUS: Record<string, string> = {
 };
 
 const DEBT_SUSPENSION_THRESHOLD_KOBO = 800_000;
+
+// Wrong delivery codes allowed before the delivery locks.
+const MAX_CODE_ATTEMPTS = 5;
+
+function codesMatch(a: string, b: string): boolean {
+  const x = Buffer.from(a);
+  const y = Buffer.from(b);
+  return x.length === y.length && crypto.timingSafeEqual(x, y);
+}
 
 function hubStatusFor(next: string): string | null {
   if (next === COURIER_STATUS.PICKED_UP || next === COURIER_STATUS.EN_ROUTE) return "out_for_delivery";
@@ -104,6 +114,9 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
     const { uid } = await verifyToken(req);
     await connectToDatabase();
 
+    const body = (await req.json().catch(() => ({}))) as { code?: unknown };
+    const submittedCode = typeof body?.code === "string" ? body.code.trim() : "";
+
     const request = await CourierRequest.findById(params.id);
     if (!request) {
       return NextResponse.json({ error: "Request not found" }, { status: 404 });
@@ -136,11 +149,68 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
     if (next === COURIER_STATUS.PICKED_UP) set.pickedUpAt = new Date();
     if (next === COURIER_STATUS.DELIVERED) set.deliveredAt = new Date();
 
+    // Delivery code: the receiver gives the rider the 4 digits the customer
+    // saw. Checked here, before anything is marked delivered or settled.
+    // Requests with no saved code (older ones) skip this step.
+    if (
+      request.status === COURIER_STATUS.EN_ROUTE &&
+      request.deliveryCodeRequired &&
+      typeof request.deliveryCode === "string" &&
+      request.deliveryCode.length > 0
+    ) {
+      if (!/^\d{4}$/.test(submittedCode)) {
+        return NextResponse.json(
+          { error: "Enter the 4-digit delivery code from the receiver." },
+          { status: 400 }
+        );
+      }
+
+      // Count the try first (atomically), then compare. This way many
+      // requests sent at the same time can't get extra guesses.
+      const counted = await CourierRequest.findOneAndUpdate(
+        {
+          _id: params.id,
+          courierUid: uid,
+          status: COURIER_STATUS.EN_ROUTE,
+          deliveryCodeAttempts: { $lt: MAX_CODE_ATTEMPTS },
+        },
+        { $inc: { deliveryCodeAttempts: 1 } },
+        { new: true }
+      ).select("deliveryCodeAttempts");
+
+      if (!counted) {
+        return NextResponse.json(
+          {
+            error: "Too many wrong codes. Tap the menu and use Report a problem so Crafteey can help.",
+            codeLocked: true,
+          },
+          { status: 429 }
+        );
+      }
+
+      if (!codesMatch(submittedCode, request.deliveryCode)) {
+        const left = Math.max(MAX_CODE_ATTEMPTS - (counted.deliveryCodeAttempts ?? MAX_CODE_ATTEMPTS), 0);
+        return NextResponse.json(
+          {
+            error:
+              left > 0
+                ? `That code is wrong. ${left} ${left === 1 ? "try" : "tries"} left.`
+                : "Too many wrong codes. Tap the menu and use Report a problem so Crafteey can help.",
+            codeLocked: left <= 0,
+          },
+          { status: 422 }
+        );
+      }
+
+      set.deliveryCodeVerifiedAt = new Date();
+    }
+
+    // The delivery code is for the customer and receiver only. Never send it to the rider.
     const updated = await CourierRequest.findOneAndUpdate(
       { _id: params.id, courierUid: uid, status: request.status },
       { $set: set },
       { new: true }
-    );
+    ).select("-deliveryCode");
 
     if (!updated) {
       return NextResponse.json({ error: "Status already changed - refresh and try again" }, { status: 409 });

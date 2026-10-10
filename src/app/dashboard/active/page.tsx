@@ -49,6 +49,8 @@ interface ActiveRequest {
   platformCommissionKobo?: number | null;
   paymentMethod?: "cash" | "transfer";
   paymentStatus?: string;
+  // The code itself is never sent to the rider - only whether one is needed.
+  deliveryCodeRequired?: boolean;
 }
 
 // How often we re-hit the Directions API on a timer while the destination
@@ -113,6 +115,11 @@ export default function ActiveDeliveryPage() {
   const [view, setView] = useState<View>("card");
   const [chatOpen, setChatOpen] = useState(false);
   const [helpView, setHelpView] = useState<HelpView>(null);
+
+  // Delivery code the receiver gives the rider, and a counter that resets the
+  // slide button after a failed try.
+  const [enteredCode, setEnteredCode] = useState("");
+  const [slideKey, setSlideKey] = useState(0);
 
   const [pickupCoords, setPickupCoords] = useState<LatLng | null>(null);
   const [dropoffCoords, setDropoffCoords] = useState<LatLng | null>(null);
@@ -361,13 +368,15 @@ export default function ActiveDeliveryPage() {
       const token = await getIdToken();
       const res = await fetch(`/api/courier-requests/${request._id}/status`, {
         method: "PATCH",
-        headers: { Authorization: `Bearer ${token}` },
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ code: enteredCode }),
       });
       if (!res.ok) {
         const data = await res.json().catch(() => ({}));
         throw new Error(data.error || "Couldn't update status.");
       }
       const data = await res.json();
+      setEnteredCode("");
       if (data.request.status === COURIER_STATUS.DELIVERED) {
         router.replace("/dashboard");
       } else {
@@ -380,6 +389,9 @@ export default function ActiveDeliveryPage() {
       }
     } catch (err: any) {
       setError(err.message || "Couldn't update status.");
+      // Clear the code and reset the slide button so the rider can try again.
+      setEnteredCode("");
+      setSlideKey((n) => n + 1);
     } finally {
       setAdvancing(false);
     }
@@ -474,6 +486,10 @@ export default function ActiveDeliveryPage() {
   const isTransfer = request.paymentMethod === "transfer";
   const atPaymentStep =
     needsPayment && request.status === COURIER_STATUS.EN_ROUTE && !paymentDone;
+
+  // --- Delivery code: asked for at the very last step ---
+  const needsCode = request.status === COURIER_STATUS.EN_ROUTE && !!request.deliveryCodeRequired;
+  const codeReady = !needsCode || enteredCode.length === 4;
 
   // A job can only be given back before pickup, and before any payment started.
   const canGiveUp =
@@ -784,11 +800,31 @@ export default function ActiveDeliveryPage() {
               </button>
             ) : (
               <div className="mt-5">
+                {needsCode && (
+                  <div className="mb-4 rounded-xl border border-brand-accent/30 bg-brand-accent/5 p-4">
+                    <p className="text-sm font-bold text-brand">Delivery code</p>
+                    <p className="mt-0.5 text-xs text-steel">
+                      Ask {contactName} for the 4-digit code, then type it here.
+                    </p>
+                    <input
+                      type="text"
+                      inputMode="numeric"
+                      pattern="[0-9]*"
+                      autoComplete="one-time-code"
+                      maxLength={4}
+                      value={enteredCode}
+                      onChange={(e) => setEnteredCode(e.target.value.replace(/\D/g, "").slice(0, 4))}
+                      placeholder="0000"
+                      aria-label="Delivery code"
+                      className="mt-3 w-full rounded-xl border border-slate-200 bg-white py-3 text-center text-3xl font-extrabold tracking-[0.4em] text-brand outline-none focus:border-brand-accent"
+                    />
+                  </div>
+                )}
                 <SlideButton
-                  key={request.status}
+                  key={`${request.status}-${slideKey}`}
                   label={SLIDE_LABEL[request.status] ?? stage.nextActionLabel}
                   onComplete={handleAdvance}
-                  disabled={advancing}
+                  disabled={advancing || !codeReady}
                 />
               </div>
             )}

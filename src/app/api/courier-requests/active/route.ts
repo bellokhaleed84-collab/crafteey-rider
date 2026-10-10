@@ -4,7 +4,7 @@ import { connectToDatabase } from "@/lib/mongodb";
 import CourierRequest from "@/models/CourierRequest";
 import { COURIER_STATUS } from "@/lib/constants";
 
-// Statuses that mean "this courier has an active job in progress" —
+// Statuses that mean "this courier has an active job in progress" -
 // pending has no courier yet, delivered/cancelled are finished.
 const ACTIVE_STATUSES = [
   COURIER_STATUS.ACCEPTED,
@@ -17,10 +17,13 @@ export async function GET(req: NextRequest) {
     const { uid } = await verifyToken(req);
     await connectToDatabase();
 
+    // The delivery code is for the customer and receiver only. Never send it to the rider.
     const activeRequest = await CourierRequest.findOne({
       courierUid: uid,
       status: { $in: ACTIVE_STATUSES },
-    }).lean();
+    })
+      .select("-deliveryCode")
+      .lean();
 
     return NextResponse.json({ request: activeRequest ?? null });
   } catch (err) {
