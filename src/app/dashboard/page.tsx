@@ -3,6 +3,7 @@
 import { useRouter } from "next/navigation";
 import MapOrFallback from "@/components/map/MapOrFallback";
 import HomeCards from "@/components/HomeCards";
+import RatingSummaryCard from "@/components/RatingSummaryCard";
 import { useRiderStatus } from "@/contexts/RiderStatusContext";
 
 // Permanent base screen - the online/offline toggle lives here. Going
@@ -100,6 +101,9 @@ export default function DashboardHomePage() {
       {geoError && permissionState !== "denied" && (
         <p className="text-sm text-red-600">{geoError}</p>
       )}
+
+      {/* How customers rate you */}
+      <RatingSummaryCard />
 
       {/* Cards you control from crafteey-admin > Rider Home cards */}
       <HomeCards />
