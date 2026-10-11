@@ -51,6 +51,8 @@ interface ActiveRequest {
   paymentStatus?: string;
   // The code itself is never sent to the rider - only whether one is needed.
   deliveryCodeRequired?: boolean;
+  // Hub orders only: the rider reads this to the vendor at pickup.
+  pickupCode?: string | null;
 }
 
 // How often we re-hit the Directions API on a timer while the destination
@@ -83,6 +85,11 @@ type HelpView = null | "menu" | "problem" | "giveup" | "emergency";
 
 function stopDrag(e: ReactPointerEvent<HTMLElement>) {
   e.stopPropagation();
+}
+
+// "482913" shows as "482 913", easier to read out loud.
+function formatPickupCode(code: string): string {
+  return code.length === 6 ? `${code.slice(0, 3)} ${code.slice(3)}` : code;
 }
 
 // How far to turn the "up" arrow for each kind of turn.
@@ -494,6 +501,13 @@ export default function ActiveDeliveryPage() {
   const needsCode = request.status === COURIER_STATUS.EN_ROUTE && !!request.deliveryCodeRequired;
   const codeReady = !needsCode || enteredCode.length === 4;
 
+  // --- Pickup code: Hub orders only, shown until the order is picked up. The
+  // rider reads it to the vendor, who checks it matches before handing over. ---
+  const pickupCode =
+    request.source === "hub" && request.status === COURIER_STATUS.ACCEPTED && request.pickupCode
+      ? request.pickupCode
+      : null;
+
   // A job can only be given back before pickup, and before any payment started.
   const canGiveUp =
     request.status === COURIER_STATUS.ACCEPTED && (request.paymentStatus ?? "unpaid") === "unpaid";
@@ -714,6 +728,19 @@ export default function ActiveDeliveryPage() {
                 Location sharing is off - the client won't see your live position until you enable
                 location access.
               </p>
+            )}
+
+            {/* Pickup code: read this to the vendor when you arrive */}
+            {pickupCode && (
+              <div className="mb-4 rounded-xl border border-brand-accent/30 bg-brand-accent/5 p-4 text-center">
+                <p className="text-sm font-bold text-brand">Pickup code</p>
+                <p className="mt-0.5 text-xs text-steel">
+                  Tell the vendor this code when you arrive. Don&apos;t share it with anyone else.
+                </p>
+                <p className="mt-3 text-4xl font-extrabold tracking-[0.2em] text-brand">
+                  {formatPickupCode(pickupCode)}
+                </p>
+              </div>
             )}
 
             {/* Timeline */}

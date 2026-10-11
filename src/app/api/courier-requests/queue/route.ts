@@ -23,14 +23,16 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ requests: [] });
     }
 
-    // The delivery code is for the customer and receiver only. Never send it to the rider.
+    // The delivery code is for the customer and receiver only. The pickup code
+    // is only for the rider who accepts the job (so no other rider can pose as
+    // the collector at the vendor). Never send either one in the open queue.
     const requests = await CourierRequest.find({
       status: COURIER_STATUS.PENDING,
       courierUid: null,
       vehicleType: courier.vehicleType,
       declinedBy: { $ne: decoded.uid },
     })
-      .select("-deliveryCode")
+      .select("-deliveryCode -pickupCode")
       .sort({ createdAt: 1 })
       .limit(20)
       .lean();
